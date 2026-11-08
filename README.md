@@ -36,8 +36,10 @@ a nixpkgs cannot build is not offered there. Being offered is not being built: D
 chDB, NeuG and zvec were built and checked on all three, with their test suites, except the
 Python module of NeuG, which 25.11 cannot build and is not offered on (see its page). That
 includes the unit tests of zvec for its C library: 153 programs of its core libraries and 74 of
-its database layer. One of them fails now and then on its first run and is run again when it
-does (see [its page](docs/zvec.md#a-test-that-fails-on-its-first-run)).
+its database layer. They also run with io_uring taken away from the library (with libaio and
+without), for systems that have none ([how](docs/zvec.md#without-io_uring)). One of them fails now and
+then on its first run and is run again when it does (see
+[its page](docs/zvec.md#a-test-that-fails-on-its-first-run)).
 
 From your own flake, `lib.<engine>` takes your package set and gives the engine, built
 with it, without changing anything else in `pkgs`:

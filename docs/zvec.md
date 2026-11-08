@@ -118,9 +118,56 @@ int main(void) {
   version to CMake (`OVERRIDE_GIT_DESCRIBE`); without it the library reports `v0.0.0`.
 - Its `RUNPATH` has the entries `$ORIGIN/../lib64:$ORIGIN/../lib:$ORIGIN` that upstream's CMake
   puts there, beside the directory of glibc. They are left as they are.
-- It loads libaio with `dlopen`, and libaio is not provided. By the source, DiskANN falls back
-  to `pread` where it finds none, and io_uring is made of raw system calls (no liburing). The
-  library was not tried on a kernel without io_uring.
+- It reads files with io_uring, libaio or `pread`, whichever it finds first, and works with all
+  three (see [Without io_uring](#without-io_uring)). libaio is loaded with `dlopen` and is not
+  provided; io_uring is made of raw system calls, with no liburing.
+
+### Without io_uring
+
+The library chooses how it reads files once per process (`src/ailego/io/io_backend_def.h`):
+io_uring if the kernel lets it make a ring, otherwise libaio if `dlopen` finds `libaio.so.1`,
+otherwise `pread`. `zvec_get_io_backend_type()` says which. Many systems have no io_uring: kernels
+built without it, the sysctl `kernel.io_uring_disabled`, the default seccomp profile of Docker
+since 25.0. The package provides no libaio and the library has no `RUNPATH` entry for it, so
+there the library reads with `pread` (and warns, `no async I/O backend available`) unless libaio
+is on the library path.
+
+Every use of the library by the checks goes through io_uring on the machine that builds them, if
+its kernel has it, so the other two ways have their own runs. `nix/zvec/io` has `no-iouring`, a
+small program that installs a seccomp filter (libseccomp) under which `io_uring_setup`,
+`io_uring_enter` and `io_uring_register` fail, in the command it starts and in all that this
+starts, and the modes that follow:
+
+| mode | the call fails with | libaio | the library selects |
+|---|---|---|---|
+| `default` | | | what the machine has: io_uring, where its kernel has it |
+| `libaio` | `ENOSYS`, as on a kernel built without io_uring | on the library path | `libaio` |
+| `pread` | `EPERM`, as with the sysctl or a container profile | not found | `pread` |
+
+The error changes one log line of the library and nothing else (`zvec-c-io-backends` runs all four
+combinations of error and libaio). The filter needs no privilege and works in the sandbox of a Nix
+build. Before it starts the command, `no-iouring` makes the call itself and exits with 3 if it
+does not fail with the error asked for, so a filter that is not in effect cannot go unnoticed.
+What this does not reproduce is the kernel itself: a program sees the error of the call and
+nothing else of a kernel without io_uring, but no such kernel was run.
+
+**Results.** Everything passes in all three modes: the test of the C API (82 test functions, 5999
+assertions), the 7 examples (`diskann_example` prints the backend that its index is read with,
+which is the one of the mode, and what its search returns is the same in all three), the 209
+tests of `zvec-rust` (with the default features; and the `libaio` and `pread` modes once more),
+the 153 test programs of ailego, core and turbo, and the 74 of the database layer. Each check
+asserts the mode it is in, from the library's own account of its backend, and the suites also from
+what they log. What changes is which tests skip themselves, because they ask for what the mode
+lacks (they are in the checks; the lines are in [the tests that skip](#the-tests-that-skip-themselves)):
+
+| mode | skips besides the 20 of the table below |
+|---|---|
+| `libaio` | the 2 tests of the ring (`IoUringLoaderTest`) |
+| `pread` | those 2, `DiskAnnLibAioDeathTest.WorkerContextOutlivesStaticDestructors` (libaio cannot be loaded), and `BufferPoolTest.AioAdmissionUsesFreeCapacityBeforeEviction` (no async backend at all) |
+
+Not measured: speed. `pread` is synchronous, and the library says that "performance may be
+degraded". Whether the package should put libaio on its own `RUNPATH`, so that a kernel without
+io_uring still reads with libaio, is open: it changes the package, and every check with it.
 
 ### What the build needed
 
@@ -165,7 +212,7 @@ The crates are `zvec-rust-sys` and `zvec-rust` 0.8.0 on crates.io, **the zvec te
 ([zvec-ai/zvec-rust](https://github.com/zvec-ai/zvec-rust), tag v0.8.0, Apache-2.0): safe bindings
 over the C API, with the declarations written by hand and no bindgen. This repository writes no
 binding code for zvec, unlike for [NeuG](neug.md#rust). What it provides is the library they link
-and a program that uses them, `examples/zvec-rust-consumer`, built by `nix/zvec/rust.nix`:
+and a program that uses them, `examples/zvec-rust-consumer`, built by `nix/zvec/rust-checks/consumer.nix`:
 
 ```nix
 pkgs.rustPlatform.buildRustPackage {
@@ -203,12 +250,12 @@ query.set_filter("price >= 50")?;
 for hit in c.query(&query)? { println!("{:?} {}", hit.get_pk(), hit.get_score()); }
 ```
 
-The pin is `pkgs/zvec-rust/pin.json`, made by `scripts/update-zvec-rust.sh [VERSION]`, which
+The pin is `nix/zvec/rust-checks/pin.json`, made by `scripts/update-zvec-rust.sh [VERSION]`, which
 writes nothing unless: each `.crate` hashes to the sha256 that the crates.io API records; the
 `.cargo_vcs_info.json` of both crates names the commit that the tag names; every file of both
 crates is byte for byte the file of the repository at that tag; and the lock files name no
 network crate (below). It also keeps a copy of the repository's `Cargo.lock` in
-`pkgs/zvec-rust/workspace.lock`, because a build cannot read one from a fetched source (that is
+`nix/zvec/rust-checks/workspace.lock`, because a build cannot read one from a fetched source (that is
 import from derivation, which CI forbids). It is not called `Cargo.lock`: Dependabot takes every
 `Cargo.lock` for a Rust project and fails where no `Cargo.toml` is next to it.
 
@@ -241,8 +288,7 @@ What was learned by using the crates:
 **TLS.** Nothing in either lock file talks to a network: no openssl, rustls, ring, reqwest,
 ureq, hyper, curl or tokio, and no source from git. The check `zvec-rust-lock-policy` and the
 update script both say so, so the choice of `tls` that the other Rust programs of this repository
-have ([chDB](chdb.md#rust)) is a no-op here. `nix/zvec/rust.nix` takes the same argument
-(`"none"` by default, `"rustls"`, `"openssl"`) for the day that changes.
+have ([chDB](chdb.md#rust)) does not arise here; the example has no such argument.
 
 ## Checks
 
@@ -281,25 +327,46 @@ later need, so the check adds it to its copy.
 
 | | |
 |---|---|
+| `zvec-c-io-backends` | which I/O the library uses where the kernel has no io_uring, and that `no-iouring` does what it says: for each error (`ENOSYS`, `EPERM`) with libaio on the library path or not, the probe (`zvec_get_io_backend_type`) says `libaio` or `pread` and the description says why; where the machine has io_uring it says io_uring. Controls: each clause of the comparison (the error, the backend, the description) is shown to fail by itself, a probe without the wrapper is not taken for one with it, the children of the command are filtered too, and the wrapper used wrongly exits with 2 and runs nothing. With a wrapper that filters nothing the check fails |
 | `zvec-c-library` | the package holds the three files and no other; the library needs the C library and nothing else; the functions of the header, those of zvec's own list of exports and those the shared object defines are the same 380; `zvec_get_version` and `zvec_check_version` agree with the pin; a program built with the header and `-lzvec_c_api`, and one built with the flags of pkg-config, find the library by their `RUNPATH`. Controls: a library with `libstdc++` added to its `NEEDED` is refused, a header with one declaration less, a version that is not the library's, a program without its `RUNPATH`, and pkg-config without the package in its path |
 | `zvec-c-params` | the check of `zvec-params` for this version: a parameter of each of the eleven types that fit in a pointer reads back as what was set, built with `-O3` against the headers with the repair. Where the compiler is GCC 15 or later, the headers as upstream has them must fail with `uint32_t`, and do (`set 20, read 0`) |
-| `zvec-c-tests` | zvec's own test of the C API (`tests/c/c_api_test.c`), compiled against the installed library the way an application is (the header of the package, `-lzvec_c_api`, the library found by the `RUNPATH` the linker records), with the warning flags of upstream's CMake and `-Werror`. `main` calls 82 test functions (counted from the source: the file defines more, one of them commented out in `main` and one only a wrapper of tests that `main` calls); the output must name exactly those 82 and say `Total tests: 82, Passed: 82, Failed: 0`, and the version string of the pin. It has 5999 assertions that pass and none that fail. Controls: one assertion flipped in a copy (the compatibility of versions) fails at its own line and at no other, and the program without its `RUNPATH` does not start |
-| `zvec-c-examples` | the 7 programs of zvec's `examples/c`, each compiled against the installed library and run in a directory of its own. `diskann_example` is among them: upstream's CI does not run it, and it passes here. The list is compared with the sources and with upstream's `CMakeLists.txt`, so an example that upstream adds fails the check. A pass is also nothing on stderr, none of the marks of failure the examples print, `example completed`, and the version of the pin in the output of `optimized_example` (an example returns 0 even where it prints that a step failed). Recorded, not asserted: the query of `doc_example` filters on `'string_field_0'` where its documents hold `test_string_N`, so it returns nothing and the loop that verifies its results checks nothing. Controls: an example in a directory that cannot be written to fails and says so, and one without its `RUNPATH` does not start |
-| `zvec-c-core-tests` | zvec's unit tests of `ailego` (43 test programs), `core` (81) and `turbo` (29), built from the source, patches and flags of the package and run with `ctest`: all pass. 19 tests skip themselves, and the check lists them, each with the line of the source that says why; one that is not on the list skipping, or one on it not skipping, fails the check. They are `ThreadQueue.MultiThreadWithHighPriority` and `TestMaxIndexSize` of the flat, HNSW and sparse HNSW streamers, which upstream disabled with `GTEST_SKIP()`, and 15 NEON tests of turbo, which need AArch64. libaio is on the library path of the tests, so that the tests of the code that loads it run (`DiskAnnLibAioDeathTest` skips itself where `dlopen` finds none). CMake registers every test file but one, `diskann_file_reader_windows_test`, which upstream's CMake adds for WIN32 only; the check requires every registered test to have a file and every file to be registered but that one. **One test is run again when it fails**: `diskann_mobile_compat_test` fails now and then on its first run, and passes when run again (see [below](#a-test-that-fails-on-its-first-run)), so when it is the only test to fail the check runs it again, three times at most, and prints that it did; any other failure is final. About 12 minutes of tests, 11 of them for `core`. Control: one expectation made wrong in `bit_string_helper_test`, built again, must fail |
-| `zvec-c-db-tests` | zvec's unit tests of the database layer (`tests/db`), the code that the C API is, built and run as `zvec-c-core-tests` is: 74 test programs, all pass and none skips itself. The 75th test file, `utf8_acp_test`, is for Windows with MSVC (its `CMakeLists.txt` returns at once elsewhere) and is not registered; the check says so. `data_generator` and `collection_optimizer`, which tests start, are built as well. The 72 tests that can run together take about 200 seconds; the 2 whose names match `recovery` (they kill processes and wait for time to pass) run one at a time afterwards, which takes a few minutes more. `perf_bench_test` skips its 17 cases unless it is told to run them, and some of them check what the queries return, so it is told to (`ZVEC_RUN_PERF_BENCH=1`, on 5000 documents and one iteration, not 100000 and 30). About 10 minutes of tests. Control: one expectation made wrong in `cgroup_util_test` must fail |
+| `zvec-c-tests` | zvec's own test of the C API (`tests/c/c_api_test.c`), compiled against the installed library the way an application is (the header of the package, `-lzvec_c_api`, the library found by the `RUNPATH` the linker records), with the warning flags of upstream's CMake and `-Werror`. `main` calls 82 test functions (counted from the source: the file defines more, one of them commented out in `main` and one only a wrapper of tests that `main` calls); the output must name exactly those 82 and say `Total tests: 82, Passed: 82, Failed: 0`, and the version string of the pin. It has 5999 assertions that pass and none that fail. It is run three times, as the machine has its I/O and in the two modes without io_uring ([above](#without-io_uring)), and passes in all Controls: one assertion flipped in a copy (the compatibility of versions) fails at its own line and at no other, and the program without its `RUNPATH` does not start |
+| `zvec-c-examples` | the 7 programs of zvec's `examples/c`, each compiled against the installed library and run in a directory of its own. `diskann_example` is among them: upstream's CI does not run it, and it passes here. The list is compared with the sources and with upstream's `CMakeLists.txt`, so an example that upstream adds fails the check. A pass is also nothing on stderr, none of the marks of failure the examples print, `example completed`, and the version of the pin in the output of `optimized_example` (an example returns 0 even where it prints that a step failed). Recorded, not asserted: the query of `doc_example` filters on `'string_field_0'` where its documents hold `test_string_N`, so it returns nothing and the loop that verifies its results checks nothing. Controls: an example in a directory that cannot be written to fails and says so, and one without its `RUNPATH` does not start. Each example runs in the three modes too; `diskann_example` prints the backend that reads its index, which must be the one of the mode, and its search returns the same in all three |
+| `zvec-c-core-tests` | zvec's unit tests of `ailego` (43 test programs), `core` (81) and `turbo` (29), built from the source, patches and flags of the package and run with `ctest`: all pass. 20 tests skip themselves, and the check lists them ([below](#the-tests-that-skip-themselves)); one that is not on the list skipping, or one on it not skipping, fails the check. The suite runs three times, as the machine has its I/O and in the two modes without io_uring ([above](#without-io_uring)), each with the skips its mode adds, and passes in all; the logs of the `pread` mode have the library's warning that it has no async backend and those of the `libaio` mode do not. libaio is on the library path in the first run, so that the tests of the code that loads it run. Some tests skip for want of an instruction set (AVX-512, VNNI, FP16) or because the user can write to a file that is meant to be read-only: the list is that of an x86_64 CPU with AVX-512 and VNNI, built as an unprivileged user, as the builders here are; on another CPU the check names the difference.
+
+CMake registers every test file but one, `diskann_file_reader_windows_test`, which upstream's CMake adds for WIN32 only; the check requires every registered test to have a file and every file to be registered but that one. **One test is run again when it fails**: `diskann_mobile_compat_test` fails now and then on its first run, and passes when run again (see [below](#a-test-that-fails-on-its-first-run)), so when it is the only test to fail the check runs it again, three times at most, and prints that it did; any other failure is final. About 11 minutes of tests for each run, almost all for `core`. Control: one expectation made wrong in `bit_string_helper_test`, built again, must fail |
+| `zvec-c-db-tests` | zvec's unit tests of the database layer (`tests/db`), the code that the C API is, built and run as `zvec-c-core-tests` is, in the same three modes: 74 test programs, all pass in each and none skips itself. The 75th test file, `utf8_acp_test`, is for Windows with MSVC (its `CMakeLists.txt` returns at once elsewhere) and is not registered; the check says so. `data_generator` and `collection_optimizer`, which tests start, are built as well. The 72 tests that can run together take about 200 seconds; the 2 whose names match `recovery` (they kill processes and wait for time to pass) run one at a time afterwards, which takes a few minutes more. `perf_bench_test` skips its 17 cases unless it is told to run them, and some of them check what the queries return, so it is told to (`ZVEC_RUN_PERF_BENCH=1`, on 5000 documents and one iteration, not 100000 and 30). About 10 minutes of tests for each run. Control: one expectation made wrong in `cgroup_util_test` must fail |
 
 ### The Rust crates
 
 | | |
 |---|---|
-| `zvec-rust-lock-policy` | the lock file of the example (3 packages) and the copy of the lock file of the crates' repository (104 packages) have no crate of TLS or HTTP and none from git. The function that says so (`nix/zvec/rust-policy.nix`) is shown to refuse a lock file with `openssl-sys`, at evaluation |
+| `zvec-rust-lock-policy` | the lock file of the example (3 packages) and the copy of the lock file of the crates' repository (104 packages) have no crate of TLS or HTTP and none from git. The function that says so (`nix/zvec/rust-checks/policy.nix`) is shown to refuse a lock file with `openssl-sys`, at evaluation |
 | `zvec-rust-consumer` | `examples/zvec-rust-consumer`, built on the crates against `zvec-c` and run: the version of the library is the pin's; a collection with an `int32` field `price` (inverted index), a string `label` and a 4-dimensional fp32 vector (HNSW, L2); 100 documents; the 5 nearest of `doc_42` (itself first, at distance 0, the others ascending; the second is `doc_43` at 1.3225, which is a squared L2 distance); the same query with `price >= 50`, whose hits all have a price of 50 or more; a fetch that round-trips every field; a delete; `optimize`; close and open again, with the same count and the same nearest hit; a path that is not a collection and a malformed filter, which are `Err` and not panics. The program must have the `RUNPATH` of `zvec-c`. Controls: the same program told to expect another version of the library fails, and without its `RUNPATH` it does not start |
 | `zvec-rust-abi` | the 375 functions that `zvec-rust-sys` declares are all exported by the library, which exports 380. The five that it does not bind are exactly the list [above](#rust). Controls: a function the library lacks, a function missing from the list of the five, and one of the five that is bound each fail the check. A newer crate that binds one of the five fails it until the list is changed |
-| `zvec-rust-tests` | the zvec team's own tests of the two crates, from their repository at the tag, with its `Cargo.lock`: `cargo test --lib --tests --doc`, in two passes, with the default features and with `--no-default-features`. Each pass has 209 tests that pass and none ignored (209 is the number of `#[test]` functions in the sources: 119 unit tests, 80 in 6 integration test files and 10 of the hermetic tests of the build script), and the 7 documentation tests: 6 pass (five are only compiled, and one is `compile_fail`, which passes by not compiling) and 1 is `ignore`d. No test skips itself (the crate prints "skipping" when the library lacks DiskANN or RaBitQ; none did here). The test programs are compared with the manifest. Not run: the two helper members of the workspace (`zvec-build`, which is published as `zvec-rust-build`, and `zvec-rpath-smoke`), which this repository does not provide, and the criterion benchmarks, which measure and do not test. Controls: one test with a wrong expectation fails at that test; with the variables of the linker wrapper taken away the same tests link with a right `ZVEC_LIB_DIR` and fail to link (`cannot find -lzvec_c_api`) with an empty one, and nothing is downloaded either way |
+| `zvec-rust-tests` | the zvec team's own tests of the two crates, from their repository at the tag, with its `Cargo.lock`: `cargo test --lib --tests --doc`, in four passes: with the default features, with `--no-default-features`, and with the default features in the two modes without io_uring ([above](#without-io_uring)). Each pass has 209 tests that pass and none ignored (209 is the number of `#[test]` functions in the sources: 119 unit tests, 80 in 6 integration test files and 10 of the hermetic tests of the build script), and the 7 documentation tests: 6 pass (five are only compiled, and one is `compile_fail`, which passes by not compiling) and 1 is `ignore`d. No test skips itself (the crate prints "skipping" when the library lacks DiskANN or RaBitQ; none did here). The test programs are compared with the manifest. Not run: the two helper members of the workspace (`zvec-build`, which is published as `zvec-rust-build`, and `zvec-rpath-smoke`), which this repository does not provide, and the criterion benchmarks, which measure and do not test. Controls: one test with a wrong expectation fails at that test; with the variables of the linker wrapper taken away the same tests link with a right `ZVEC_LIB_DIR` and fail to link (`cannot find -lzvec_c_api`) with an empty one, and nothing is downloaded either way |
 
 CI builds none of this (the library and the tests do not fit a hosted runner). Its `evaluate`
 job (`nix flake check --no-build`, without import from derivation) does evaluate the packages and
 checks named here.
+
+### The tests that skip themselves
+
+Where a test skips itself, the check lists it, with the reason that the source of the test gives:
+
+| tests | in | why |
+|---|---|---|
+| `ThreadQueue.MultiThreadWithHighPriority` | every mode | `GTEST_SKIP()` first in the test, "TODO(windows): add it back" (`tests/ailego/parallel/thread_queue_test.cc:113`) |
+| `TestMaxIndexSize` of `FlatStreamerTest`, `HnswStreamerTest`, `HnswSparseStreamerTest` | every mode | `GTEST_SKIP()` first in the test (`tests/core/algorithm/flat/flat_streamer_test.cc:1520`, `hnsw/hnsw_streamer_test.cc:1694`, `hnsw_sparse/hnsw_sparse_streamer_test.cc:1210`) |
+| 15 tests of the NEON kernels of turbo, and the NEON case of `Backends/RawInt8Simd.FullSignedRangeTailsBatchesAndLongVectors` | every mode | "requires AArch64" or "lacks NEON" (`tests/turbo/turbo_{neon_batch,neon_distance,fp16_quantizer,fp32_quantizer,pq_fast_quantizer,pq_int4_quantizer,pq_int8_quantizer}_test.cc`), and "ISA unavailable on this build/CPU" (`turbo_raw_int8_test.cc:157`) |
+| `IoUringLoaderTest.ReadsBatchAndZeroPadsExpectedShortRead`, `.WritesScatteredBatch` | `libaio`, `pread` | "io_uring is unavailable" when a ring cannot be made (`tests/ailego/io/iouring_loader_test.cc:66`, `:97`) |
+| `DiskAnnLibAioDeathTest.WorkerContextOutlivesStaticDestructors` | `pread` | "libaio is not installed" when `dlopen` finds none (`tests/core/algorithm/diskann/diskann_libaio_lifetime_test.cc:87`) |
+| `BufferPoolTest.AioAdmissionUsesFreeCapacityBeforeEviction` | `pread` | "no asynchronous backend is available" (`tests/ailego/buffer/vector_page_table_test.cc:1904`) |
+
+CMake registers every test file but one, `diskann_file_reader_windows_test`, which
+`tests/core/algorithm/diskann/CMakeLists.txt` adds for WIN32 only; and `tests/db/utf8_acp_test`,
+which `tests/db/utf8_acp/CMakeLists.txt` registers for Windows with MSVC. The checks require every
+registered test to have a file, and every file to be registered but those.
 
 ### A test that fails on its first run
 
@@ -347,8 +414,9 @@ of the check on the three nixpkgs, which are the ones this page describes, neede
   `use_id_map=false` is opened again).
 - The Python module of zvec (v0.8.1 has one) is not built.
 - The `zvec` static libraries stay at NeuG's commit.
-- `libaio` is not provided, and nothing was tried on a kernel without io_uring (see
-  [The C library](#the-c-library)).
+- `libaio` is not provided (see [Without io_uring](#without-io_uring)), and no kernel without
+  io_uring was run: the system call is made to fail with a seccomp filter. Speed without io_uring
+  is not measured.
 - Any system but x86_64-linux with glibc.
 - The failure of `diskann_mobile_compat_test` on its first run (above) is not explained, and the
   check runs the test again where it fails.
