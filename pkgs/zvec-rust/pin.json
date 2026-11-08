@@ -1,0 +1,18 @@
+{
+  "crates": {
+    "zvec-rust": {
+      "sha256": "sha256-fsEVQfH1BrUoBgEE15UbDENBpe3ZjWHmfygWXBnOcHw="
+    },
+    "zvec-rust-sys": {
+      "sha256": "sha256-39LDHcrdR3oPb2iGXAb0n9QlsmywRHeGGr+GVGHdsEg="
+    }
+  },
+  "hash": "sha256-bK+zjox/o2R4VIP8hHAofjKZRL2s17RcWCwmEr7PAps=",
+  "rev": "16836107cd08bb42ec4e5a4052919735346f7783",
+  "tag": "v0.8.0",
+  "version": "0.8.0",
+  "zvecSubmodule": {
+    "rev": "8397071d815cd842be2068339e00a94e69f069d1",
+    "tag": "v0.8.0-beta2"
+  }
+}
