@@ -24,8 +24,8 @@ let
 
   # the copy of the lock file of the repository that the tests are built with (a build cannot
   # read one from a fetched source), and the one of the example
-  testsLockFile = ../../../pkgs/zvec-rust/Cargo.lock;
-  testsLock = policy.assertClean "pkgs/zvec-rust/Cargo.lock" (builtins.readFile testsLockFile);
+  testsLockFile = ../../../pkgs/zvec-rust/workspace.lock;
+  testsLock = policy.assertClean "pkgs/zvec-rust/workspace.lock" (builtins.readFile testsLockFile);
   exampleLock = builtins.readFile ../../../examples/zvec-rust-consumer/Cargo.lock;
 
   packages =

@@ -3,9 +3,10 @@
 # zvec-rust-sys (the raw bindings) and zvec-rust (the safe ones). pkgs/zvec-rust/pin.json gets
 # the version, the hash of each crate, and the commit and the source hash of the repository
 # they are published from (zvec-ai/zvec-rust), with the commit of zvec that the repository has
-# as its submodule; pkgs/zvec-rust/Cargo.lock gets a copy of the lock file of that repository
+# as its submodule; pkgs/zvec-rust/workspace.lock gets a copy of the lock file of that repository
 # (a checked-in copy, because reading it from the fetched source inside Nix would be
-# import-from-derivation); and the lock file of the consumer, examples/zvec-rust-consumer, is
+# import-from-derivation; it is not named Cargo.lock, which Dependabot would take for a
+# project of its own); and the lock file of the consumer, examples/zvec-rust-consumer, is
 # made again for the version:
 #
 #   scripts/update-zvec-rust.sh [version]    # default: the newest release on crates.io
@@ -165,7 +166,7 @@ check_lock() { # file label
   [ "$git" = 0 ] || fail "$2 has $git sources from git"
   echo "OK  $2: $count packages, none of the 11 crates of TLS or HTTP, $git from git"
 }
-check_lock "$work/Cargo.lock" "pkgs/zvec-rust/Cargo.lock"
+check_lock "$work/Cargo.lock" "pkgs/zvec-rust/workspace.lock"
 
 # the consumer, made again for the version in a copy, in which cargo writes its lock file
 mkdir "$work/consumer"
@@ -204,6 +205,6 @@ jq -S -n \
 
 mkdir -p "$root/pkgs/zvec-rust"
 mv "$work/pin.json" "$root/pkgs/zvec-rust/pin.json"
-mv "$work/Cargo.lock" "$root/pkgs/zvec-rust/Cargo.lock"
+mv "$work/Cargo.lock" "$root/pkgs/zvec-rust/workspace.lock"
 cp "$work/consumer/Cargo.toml" "$work/consumer/Cargo.lock" "$example/"
 echo "pinned zvec-rust $version ($rev) in pkgs/zvec-rust/pin.json"
