@@ -13,5 +13,6 @@ nix_files="$(git ls-files '*.nix')"
   deadnix --fail $nix_files
 }
 statix check .
-shellcheck scripts/*.sh
+# shellcheck disable=SC2046 # one argument for each file
+shellcheck $(git ls-files "*.sh")
 actionlint

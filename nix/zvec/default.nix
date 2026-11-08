@@ -6,7 +6,5 @@ _:
   imports = [
     ./packages.nix
     ./checks.nix
-    ./c-checks.nix
-    ./rust-checks.nix
   ];
 }

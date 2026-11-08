@@ -6,11 +6,11 @@
 
 let
   inherit (pkgs) lib zvec-c;
-  policy = import ../rust-policy.nix { inherit lib; };
-  rust = import ../rust.nix { inherit pkgs; };
-  pin = lib.importJSON ../../../pkgs/zvec-rust/pin.json;
+  policy = import ./policy.nix { inherit lib; };
+  consumer = pkgs.callPackage ./consumer.nix { };
+  pin = lib.importJSON ./pin.json;
 
-  program = rust.program { };
+  program = consumer;
 
   # the crates and their tests, as the zvec team keeps them (the repository, at the tag that
   # the crates of crates.io were made from: scripts/update-zvec-rust.sh checks that every file
@@ -24,8 +24,10 @@ let
 
   # the copy of the lock file of the repository that the tests are built with (a build cannot
   # read one from a fetched source), and the one of the example
-  testsLockFile = ../../../pkgs/zvec-rust/workspace.lock;
-  testsLock = policy.assertClean "pkgs/zvec-rust/workspace.lock" (builtins.readFile testsLockFile);
+  testsLockFile = ./workspace.lock;
+  testsLock = policy.assertClean "nix/zvec/rust-checks/workspace.lock" (
+    builtins.readFile testsLockFile
+  );
   exampleLock = builtins.readFile ../../../examples/zvec-rust-consumer/Cargo.lock;
 
   packages =
@@ -46,7 +48,7 @@ let
 in
 {
   # The lock files have no crate of TLS or HTTP and none from git: the function that says so
-  # (nix/zvec/rust-policy.nix) refuses a lock file that has one, which is shown here with a
+  # (nix/zvec/rust-checks/policy.nix) refuses a lock file that has one, which is shown here with a
   # made-up one, at evaluation.
   lock-policy =
     let
@@ -169,5 +171,6 @@ in
       src
       testsLockFile
       ;
+    io = import ../io { inherit pkgs; };
   };
 }
