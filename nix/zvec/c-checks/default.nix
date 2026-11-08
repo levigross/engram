@@ -207,6 +207,28 @@ in
     # the branch for WIN32 and filtered out of the sources everywhere else) is the one test file
     # there is that is not a test here.
     notRegistered = [ "diskann_file_reader_windows_test" ];
+    # diskann_mobile_compat_test fails now and then on its first run, at BuildDumpLoadAndSearch
+    # (diskann_mobile_compat_test.cc:343 and :374: the search of a DiskANN index of 64 vectors,
+    # just built and dumped, does not find the nearest one, and the search with a filter finds
+    # none), and passes when it is run again. The evidence is from the machine the builds run on
+    # (a ZFS file system), with the test program of this build run by hand in the sandbox:
+    #  - 14 test programs were built, one at a time, and each run in a loop of 40 to 2000 runs
+    #    (about 14 000 runs after the first ones, alone and with 32 busy processes next to it):
+    #    9 of them failed on their first run, with these lines, and not one run after a first
+    #    run failed. Where the loop said which run failed (2 of the 9), it was the first.
+    #    12 of the 14 were built with 26.05 (8), unstable (2) and 25.11 (2), and 9 of those failed
+    #    their first run (6, 2 and 1). The other 2 were built with
+    #    -ftrivial-auto-var-init=zero and =pattern and did not fail, which is too few to say
+    #    anything. MALLOC_PERTURB_ (a few hundred runs) and the size of the environment (2050 runs) did not
+    #    make a later run fail;
+    #  - the check itself failed at it on 26.05 three times in a row (the first run of the test
+    #    that ctest makes, with these lines), and passed in the two complete runs of the same
+    #    check that followed (under its own name, and under another with the loop above).
+    # The builder clusters with a k-means that starts from std::random_device
+    # (src/ailego/algorithm/lloyd_cluster.h:50) and builds with two threads, so the index is
+    # not the same every time. Why a first run is the one that fails was not found. The check
+    # runs the test again, three times at most, and says so; a test that fails every time fails it.
+    flaky = [ "diskann_mobile_compat_test" ];
     dirs = [
       "ailego"
       "core"

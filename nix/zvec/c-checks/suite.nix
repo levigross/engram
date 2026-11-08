@@ -19,6 +19,12 @@
   # is there for a reason that the source of the test gives, which the comment next to the list
   # says; a test that skips itself for another reason, or does not any more, fails the check
   skipped ? [ ],
+  # tests that fail now and then on their first run and not on the ones after it, for no reason
+  # in the package; the comment next to the list gives the evidence for each. When the tests of a
+  # directory that failed are all in this list, they are run again (up to `flakyTries` times each,
+  # ctest --repeat until-pass), and the check says so; the failure of any other test is final
+  flaky ? [ ],
+  flakyTries ? 3,
   # environment variables for the tests (to turn on what a test asks for before it runs)
   env ? { },
   # directories of libraries that the tests may load besides their own (a library that zvec
@@ -64,6 +70,29 @@ zvec-c.overrideAttrs (old: {
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (n: v: "export ${n}=${lib.escapeShellArg v}") env)}
     mkdir -p $TMPDIR/logs
 
+    # The tests that failed in a log of ctest, which lists them as "   35 - name (Failed)"
+    failed_tests() {
+      sed -n 's/^[[:space:]]*[0-9][0-9]* - \([A-Za-z0-9_]*\) (.*)$/\1/p' "$1" | sort -u
+    }
+    # Where the tests that failed are all known to fail now and then (see `flaky`), they are
+    # run again; the first attempt stays in the log of the directory, the others are in
+    # $d.retry.log. Fails if a test that is not known failed, or one fails every time.
+    retry_flaky() {
+      local d=$1 failed
+      failed="$(failed_tests $TMPDIR/logs/$d.log)"
+      [ -n "$failed" ] || return 1
+      if printf '%s\n' "$failed" | grep -qvxF -f <(printf '%s\n' ${lib.escapeShellArgs flaky}); then
+        return 1
+      fi
+      echo "$d: only tests that are known to fail now and then failed ($(echo $failed))," \
+        "running them again, ${toString flakyTries} times at most each"
+      local rc=0
+      ctest --test-dir tests/$d -R "^($(echo $failed | tr ' ' '|'))\$" -j1 --repeat until-pass:${toString flakyTries} \
+        --timeout 1500 --output-on-failure --no-tests=error -V > $TMPDIR/logs/$d.retry.log 2>&1 || rc=$?
+      grep -E '^[0-9]+/[0-9]+ Test +#' $TMPDIR/logs/$d.retry.log || true
+      return $rc
+    }
+
     # every directory is run before the check fails, to see all that fails
     status=0
     for d in ${lib.concatStringsSep " " dirs}; do
@@ -90,12 +119,12 @@ zvec-c.overrideAttrs (old: {
         if serial == null then
           ''
             ctest --test-dir tests/$d -j"$((NIX_BUILD_CORES / 2 + 1))" --timeout 1500 --output-on-failure \
-              --no-tests=error -V > $TMPDIR/logs/$d.log 2>&1 || status=1
+              --no-tests=error -V > $TMPDIR/logs/$d.log 2>&1 || retry_flaky $d || status=1
           ''
         else
           ''
             ctest --test-dir tests/$d -j"$((NIX_BUILD_CORES / 2 + 1))" --timeout 1500 --output-on-failure \
-              --no-tests=error -V -E '${serial}' > $TMPDIR/logs/$d.log 2>&1 || status=1
+              --no-tests=error -V -E '${serial}' > $TMPDIR/logs/$d.log 2>&1 || retry_flaky $d || status=1
             ctest --test-dir tests/$d -j1 --timeout 1500 --output-on-failure \
               --no-tests=error -V -R '${serial}' > $TMPDIR/logs/$d.serial.log 2>&1 || status=1
           ''
@@ -104,7 +133,14 @@ zvec-c.overrideAttrs (old: {
     done
     grep -h 'tests passed' $TMPDIR/logs/*.log || true
     if [ $status != 0 ]; then
-      grep -h -B2 -A12 -E '\*\*\*Failed|\*\*\*Timeout|\*\*\*Exception|Test +#[0-9]+: .*\.\.\.+ *(Failed|\*)' $TMPDIR/logs/*.log | tail -n 150
+      # the whole output of every test that failed (ctest -V puts its number in front of each
+      # line; the list "The following tests FAILED" has "35 - name (Failed)")
+      for log in $TMPDIR/logs/*.log; do
+        for n in $(sed -n 's/^[[:space:]]*\([0-9][0-9]*\) - [A-Za-z0-9_]* (.*)$/\1/p' $log | sort -un); do
+          echo "=== $(basename $log), test $n"
+          grep -E "^$n: " $log | tail -n 80
+        done
+      done
       exit 1
     fi
 
