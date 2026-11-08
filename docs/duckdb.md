@@ -23,9 +23,9 @@ those ships, 1.5.2 and 1.4.3, is available too, with the extensions its release 
 There is a package for each extension, and `nix flake show` lists them:
 
 ```sh
-nix run github:levigross/duckdb-nix#duckdb-spatial
-nix shell github:levigross/duckdb-nix#duckdb-httpfs
-nix build github:levigross/duckdb-nix#duckdb-all    # all 28
+nix run github:levigross/engram#duckdb-spatial
+nix shell github:levigross/engram#duckdb-httpfs
+nix build github:levigross/engram#duckdb-all    # all 28
 ```
 
 For 26.05 and 25.11 the names carry a prefix: `#stable-duckdb-spatial`,
@@ -45,15 +45,15 @@ changes nothing else in `pkgs`, which makes it the way to start:
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    duckdb-nix.url = "github:levigross/duckdb-nix";
-    duckdb-nix.inputs.nixpkgs.follows = "nixpkgs";
+    engram.url = "github:levigross/engram";
+    engram.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
-    { nixpkgs, duckdb-nix, ... }:
+    { nixpkgs, engram, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      duckdb = duckdb-nix.lib.duckdb pkgs;
+      duckdb = engram.lib.duckdb pkgs;
     in
     {
       packages.x86_64-linux.default = duckdb.withExtensions (e: [
@@ -68,14 +68,14 @@ changes nothing else in `pkgs`, which makes it the way to start:
 }
 ```
 
-`follows` makes the flake's own packages (`duckdb-nix.packages.<system>.duckdb-httpfs`)
+`follows` makes the flake's own packages (`engram.packages.<system>.duckdb-httpfs`)
 build with your nixpkgs too. That matters when something links `libduckdb`, since a
 program built with one glibc cannot load a library built with a newer one. With
 flake-parts it is the same call in `perSystem`:
 
 ```nix
 perSystem = { pkgs, ... }: {
-  packages.default = (inputs.duckdb-nix.lib.duckdb pkgs).withExtensions (e: [ e.zipfs ]);
+  packages.default = (inputs.engram.lib.duckdb pkgs).withExtensions (e: [ e.zipfs ]);
 };
 ```
 
@@ -87,7 +87,7 @@ DuckDB 2.0.0 is the default. The DuckDB that nixpkgs 26.05 and 25.11 ship, 1.5.2
 
 ```nix
 let
-  duckdbs = duckdb-nix.lib.duckdbVersions pkgs; # as lib.duckdb is, for every version
+  duckdbs = engram.lib.duckdbVersions pkgs; # as lib.duckdb is, for every version
   duckdb = duckdbs."1.4";                       # 1.4.3; duckdb.version says which
 in
 duckdb.withExtensions (e: [ e.httpfs e.spatial ])
@@ -95,9 +95,9 @@ duckdb.withExtensions (e: [ e.httpfs e.spatial ])
 
 | | |
 |---|---|
-| flake | `duckdb-nix.lib.duckdbVersions pkgs` as above; `lib.duckdb pkgs` is still 2.0.0 |
+| flake | `engram.lib.duckdbVersions pkgs` as above; `lib.duckdb pkgs` is still 2.0.0 |
 | overlay | `pkgs.duckdbVersions."1.4"`; `pkgs.duckdb` is still 2.0.0 |
-| command line | `nix shell github:levigross/duckdb-nix#duckdb-1_4-httpfs`, or `#previous-duckdb-1_4-all` to build it with nixpkgs 25.11 (`#stable-duckdb-1_5-all` for 1.5 with 26.05) |
+| command line | `nix shell github:levigross/engram#duckdb-1_4-httpfs`, or `#previous-duckdb-1_4-all` to build it with nixpkgs 25.11 (`#stable-duckdb-1_5-all` for 1.5 with 26.05) |
 | Rust or C++ | `lib.getLib duckdb` and `lib.getDev duckdb` of the one you chose, as in [From Rust or C++](#from-rust-or-c); the `duckdb` crate must be the one for that DuckDB |
 | Python | `(duckdb.withExtensions (e: [ e.httpfs ])).pythonModule python3Packages`, or the package `python3-duckdb-all` (2.0): the module with the extensions linked in; `python3-duckdb-1_5-all` and `python3-duckdb-1_4-all` for the other lines. [Which of them have been built](#python-module) |
 
@@ -112,7 +112,7 @@ in [DuckDB versions](#duckdb-versions).
 { pkgs, ... }:
 {
   environment.systemPackages = [
-    ((duckdb-nix.lib.duckdb pkgs).withExtensions (e: [ e.httpfs e.spatial ]))
+    ((engram.lib.duckdb pkgs).withExtensions (e: [ e.httpfs e.spatial ]))
   ];
 }
 ```
@@ -122,8 +122,8 @@ The same expression goes in `home.packages` for home-manager.
 ### As an overlay
 
 ```nix
-import nixpkgs { inherit system; overlays = [ duckdb-nix.overlays.default ]; }
-# or, in a NixOS configuration: nixpkgs.overlays = [ duckdb-nix.overlays.default ];
+import nixpkgs { inherit system; overlays = [ engram.overlays.default ]; }
+# or, in a NixOS configuration: nixpkgs.overlays = [ engram.overlays.default ];
 ```
 
 then `pkgs.duckdb.withExtensions (e: [ ... ])` as above. This replaces `pkgs.duckdb` for
@@ -175,7 +175,7 @@ is below.
 
 2.0.0 is the default, and [another is asked for](#a-different-duckdb-version) by its
 line or release. A line has one pinned release, the one nixpkgs ships, and a project
-gets the one in the `flake.lock` of its `duckdb-nix` input.
+gets the one in the `flake.lock` of its `engram` input.
 
 | DuckDB | ships in | linked extensions | `duckdb` crate | Python module |
 |---|---|---|---|---|
@@ -236,9 +236,9 @@ refuses). For 26.05 and 25.11 the packages have the `stable-` and `previous-` pr
 **From the command line**, build the extension, start DuckDB 1.4 and load it:
 
 ```sh
-ext=$(nix build --no-link --print-out-paths github:levigross/duckdb-nix#duckdb-1_4-duckpgq-registry-loadable)
+ext=$(nix build --no-link --print-out-paths github:levigross/engram#duckdb-1_4-duckpgq-registry-loadable)
 echo "$ext"
-nix run github:levigross/duckdb-nix#duckdb-1_4        # add -unsigned for the one built here
+nix run github:levigross/engram#duckdb-1_4        # add -unsigned for the one built here
 ```
 
 ```sql
@@ -278,7 +278,7 @@ script or a wrapper can name the file without a store path:
 
 ```nix
 let
-  duckdb = (duckdb-nix.lib.duckdbVersions pkgs)."1.4";
+  duckdb = (engram.lib.duckdbVersions pkgs)."1.4";
   duckpgq = duckdb.loadableExtensions.duckpgq-registry;   # or .duckpgq, built here
 in
 "${duckpgq}/${duckpgq.path}"    # …/lib/duckpgq.duckdb_extension
@@ -450,13 +450,13 @@ flake never builds or fetches anything, so it works with
 ## Your own extension
 
 ```sh
-nix flake init -t github:levigross/duckdb-nix#extension
+nix flake init -t github:levigross/engram#extension
 nix build
 ./result/bin/duckdb -c "SELECT hello('Nix')"
 ```
 
 The template is a small extension in C++ (`hello(name)`) and a flake that links it into
-DuckDB with `duckdb-nix.lib.duckdb`. `duckdb.mkExtension` takes the source directory,
+DuckDB with `engram.lib.duckdb`. `duckdb.mkExtension` takes the source directory,
 which has a `CMakeLists.txt` as in [DuckDB's extension template](https://github.com/duckdb/extension-template),
 and the libraries it needs in `buildInputs`. `withExtensions` then links it like the
 packaged ones: `duckdb.withExtensions (e: [ e.httpfs hello ])`. DuckDB's own test

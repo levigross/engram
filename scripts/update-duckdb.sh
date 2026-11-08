@@ -434,7 +434,7 @@ crate_for() { # version
     return
   fi
   code=$((major * 10000 + minor * 100 + patch))
-  curl -fsSL -A "duckdb-nix update-duckdb.sh" "https://crates.io/api/v1/crates/duckdb/versions?per_page=100" |
+  curl -fsSL -A "engram update-duckdb.sh" "https://crates.io/api/v1/crates/duckdb/versions?per_page=100" |
     jq -r --arg p "1.$code." '[.versions[].num | select(startswith($p))] | sort_by(split(".") | map(tonumber)) | last // empty'
 }
 release_major="${tag#v}"

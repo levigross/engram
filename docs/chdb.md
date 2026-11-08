@@ -15,8 +15,8 @@ needs clang 21 and a nightly Rust, and it has 156 submodules) and is not done he
 | `python3-chdb` | chdb 4.4.0 on chdb-core 26.9.0 | the Python module, with the engine inside |
 
 ```sh
-nix build github:levigross/duckdb-nix#chdb
-nix build github:levigross/duckdb-nix#python3-chdb
+nix build github:levigross/engram#chdb
+nix build github:levigross/engram#python3-chdb
 ```
 
 with the prefixes `stable-` (26.05) and `previous-` (25.11) for the other nixpkgs. From a

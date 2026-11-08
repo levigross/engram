@@ -1,5 +1,5 @@
 {
-  description = "DuckDB with extensions linked in, for the CLI, Python and Rust";
+  description = "Embedded engines for data and AI, built with Nix: DuckDB, chDB, NeuG and zvec";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

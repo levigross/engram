@@ -15,10 +15,10 @@ over it (not upstream's: see [Rust](#rust)).
 | `zvec` | the libraries behind the `vector_search` extension, a [package of its own](zvec.md) |
 
 ```sh
-nix build github:levigross/duckdb-nix#neug
-nix build github:levigross/duckdb-nix#neug-nodejs
-nix build github:levigross/duckdb-nix#python3-neug
-nix build github:levigross/duckdb-nix#neug-c
+nix build github:levigross/engram#neug
+nix build github:levigross/engram#neug-nodejs
+nix build github:levigross/engram#python3-neug
+nix build github:levigross/engram#neug-c
 ```
 
 `lib.neug pkgs` is the package of your own `pkgs`. It builds in about 9 minutes with 12 cores

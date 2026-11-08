@@ -9,7 +9,7 @@ lightning-fast, in-process vector database". Here it is packaged as the librarie
 | `zvec` | the static libraries `libzvec_core.a`, `libzvec_turbo.a`, `libzvec_ailego.a` and `libroaring.a`, and their headers (`include/zvec/{core,ailego,turbo}` and CRoaring's `roaring.h`, `roaring.hh`, `roaring64map.hh`) |
 
 ```sh
-nix build github:levigross/duckdb-nix#zvec
+nix build github:levigross/engram#zvec
 ```
 
 There are also `stable-zvec` and `previous-zvec` (26.05 and 25.11), built and tested as well,

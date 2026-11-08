@@ -2,14 +2,14 @@
   description = "A DuckDB extension, linked into DuckDB";
 
   inputs = {
-    duckdb-nix.url = "github:levigross/duckdb-nix";
-    nixpkgs.follows = "duckdb-nix/nixpkgs";
+    engram.url = "github:levigross/engram";
+    nixpkgs.follows = "engram/nixpkgs";
   };
 
   outputs =
     {
       nixpkgs,
-      duckdb-nix,
+      engram,
       ...
     }:
     let
@@ -23,8 +23,8 @@
           "aarch64-darwin"
         ] (system: f nixpkgs.legacyPackages.${system});
 
-      # nixpkgs' duckdb, with the extensions of duckdb-nix and `mkExtension`
-      duckdbFor = pkgs: duckdb-nix.lib.duckdb pkgs;
+      # nixpkgs' duckdb, with the extensions of engram and `mkExtension`
+      duckdbFor = pkgs: engram.lib.duckdb pkgs;
 
       extensionFor = pkgs: pkgs.callPackage ./extension.nix { duckdb = duckdbFor pkgs; };
 

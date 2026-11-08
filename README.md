@@ -1,4 +1,8 @@
-# Embedded database engines, for Nix
+# engram
+
+Embedded engines for data and AI, built with Nix. The repository was `levigross/duckdb-nix`
+until it held more than DuckDB; GitHub redirects the old address (for as long as nobody else
+takes the name), and every attribute, `lib.duckdb` and the overlay are unchanged.
 
 Databases that run inside your process, packaged so that a Nix build gets them whole:
 built from source, or a binary pinned by hash, and nothing fetched when the program runs.
@@ -18,11 +22,11 @@ Only x86_64-linux with glibc has been built.
 ## Using it
 
 ```sh
-nix build github:levigross/duckdb-nix#duckdb-all      # DuckDB with every extension it can link
-nix build github:levigross/duckdb-nix#chdb            # libchdb and its header
-nix build github:levigross/duckdb-nix#python3-chdb    # the Python module of chDB
-nix build github:levigross/duckdb-nix#neug            # libneug and its six extensions
-nix flake show github:levigross/duckdb-nix            # everything there is
+nix build github:levigross/engram#duckdb-all      # DuckDB with every extension it can link
+nix build github:levigross/engram#chdb            # libchdb and its header
+nix build github:levigross/engram#python3-chdb    # the Python module of chDB
+nix build github:levigross/engram#neug            # libneug and its six extensions
+nix flake show github:levigross/engram            # everything there is
 ```
 
 Packages are offered for three nixpkgs: unstable under its own name, 26.05 with the prefix
@@ -36,7 +40,7 @@ with it, without changing anything else in `pkgs`:
 
 ```nix
 {
-  inputs.engines.url = "github:levigross/duckdb-nix";
+  inputs.engines.url = "github:levigross/engram";
   outputs = { engines, nixpkgs, ... }:
     let pkgs = nixpkgs.legacyPackages.x86_64-linux; in {
       packages.x86_64-linux.default = engines.lib.chdb pkgs;   # or engines.lib.duckdb pkgs
