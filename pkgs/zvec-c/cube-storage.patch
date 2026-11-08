@@ -1,0 +1,58 @@
+--- a/src/include/zvec/ailego/container/cube.h
++++ b/src/include/zvec/ailego/container/cube.h
+@@ -15,7 +15,9 @@
+ #pragma once
+ 
+ #include <algorithm>
++#include <cstring>
+ #include <string>
++#include <type_traits>
+ #include <typeinfo>
+ #include <zvec/ailego/utility/type_helper.h>
+ 
+@@ -58,9 +60,27 @@
+  */
+ template <typename T>
+ struct SmallCubePolicy : public CubePolicy {
++  //! Make a value in the storage of the pointer of the Cube. A Cube is moved by copying that
++  //! pointer, and the optimizer, which goes by the types of the accesses, takes a value stored
++  //! as T (a placement new) not to change a pointer: the value is lost. Bytes copied by memcpy
++  //! may alias anything. (A type that is not trivially copyable is made in place.)
++  static void construct(void **dst, const T &src, std::true_type) {
++    std::memcpy(static_cast<void *>(dst), &src, sizeof(T));
++  }
++  static void construct(void **dst, const T &src, std::false_type) {
++    new (dst) T(src);
++  }
++  static void construct(void **dst, T &&src, std::true_type) {
++    std::memcpy(static_cast<void *>(dst), &src, sizeof(T));
++  }
++  static void construct(void **dst, T &&src, std::false_type) {
++    new (dst) T(std::move(src));
++  }
++
+   //! Assign `src` to `dst`
+   void assign(const void *src, void **dst) override {
+-    new (dst) T(*reinterpret_cast<const T *>(src));
++    construct(dst, *reinterpret_cast<const T *>(src),
++              std::is_trivially_copyable<T>());
+   }
+ 
+   //! Cleanup value
+@@ -70,12 +90,14 @@
+ 
+   //! Clone value of `src` to `dst`
+   void clone(void *const *src, void **dst) override {
+-    new (dst) T(*reinterpret_cast<const T *>(src));
++    construct(dst, *reinterpret_cast<const T *>(src),
++              std::is_trivially_copyable<T>());
+   }
+ 
+   //! Move `src` to `dst`
+   void move(void *src, void **dst) override {
+-    new (dst) T(std::move(*reinterpret_cast<T *>(src)));
++    construct(dst, std::move(*reinterpret_cast<T *>(src)),
++              std::is_trivially_copyable<T>());
+   }
+ 
+   //! Retrieve size

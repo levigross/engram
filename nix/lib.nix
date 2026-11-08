@@ -18,5 +18,8 @@
 
     # zvec, an in-process vector database: its core libraries, as NeuG links them
     zvec = pkgs: (pkgs.extend self.overlays.default).zvec;
+
+    # zvec's C API as a shared library, which its Rust crates (zvec-rust) link
+    zvec-c = pkgs: (pkgs.extend self.overlays.default).zvec-c;
   };
 }
