@@ -15,7 +15,7 @@ not.
 | DuckDB | analytical SQL | built from source (2.0.0, 1.5.2, 1.4.3), with the extensions that are not in DuckDB's tree linked in | CLI, `libduckdb`, Python, Rust | [docs/duckdb.md](docs/duckdb.md) |
 | chDB | ClickHouse as a library | the upstream's prebuilt `libchdb` and Python wheels, pinned by hash. They are not signed | C (its C++ header does not link), Python, Rust | [docs/chdb.md](docs/chdb.md) |
 | NeuG | graph database (Cypher) | built from source (0.3.0), with its six extensions, which `LOAD` finds in the package. Its service mode runs on cpp-httplib instead of brpc, which crashed in a Python process | C++, a C interface and Rust crates (this repository's), Python, Node.js | [docs/neug.md](docs/neug.md) |
-| zvec | vector database | built from source, the core libraries as NeuG's `vector_search` links them | C++ (static) | [docs/zvec.md](docs/zvec.md) |
+| zvec | vector database | built from source, in two packages: the core libraries as NeuG's `vector_search` links them, and the C API library at v0.8.1. The Rust crates are the zvec team's own, pinned by hash | C++ (static), a C library, Rust | [docs/zvec.md](docs/zvec.md) |
 
 Only x86_64-linux with glibc has been built.
 
@@ -26,6 +26,7 @@ nix build github:levigross/engram#duckdb-all      # DuckDB with every extension 
 nix build github:levigross/engram#chdb            # libchdb and its header
 nix build github:levigross/engram#python3-chdb    # the Python module of chDB
 nix build github:levigross/engram#neug            # libneug and its six extensions
+nix build github:levigross/engram#zvec-c          # zvec's C API library and its header
 nix flake show github:levigross/engram            # everything there is
 ```
 
@@ -33,7 +34,10 @@ Packages are offered for three nixpkgs: unstable under its own name, 26.05 with 
 `stable-` and 25.11 with `previous-` (`#stable-chdb`, `#previous-duckdb-all`). A package that
 a nixpkgs cannot build is not offered there. Being offered is not being built: DuckDB and
 chDB, NeuG and zvec were built and checked on all three, with their test suites, except the
-Python module of NeuG, which 25.11 cannot build and is not offered on (see its page).
+Python module of NeuG, which 25.11 cannot build and is not offered on (see its page). That
+includes the unit tests of zvec for its C library: 153 programs of its core libraries and 74 of
+its database layer. One of them fails now and then on its first run and is run again when it
+does (see [its page](docs/zvec.md#a-test-that-fails-on-its-first-run)).
 
 From your own flake, `lib.<engine>` takes your package set and gives the engine, built
 with it, without changing anything else in `pkgs`:
@@ -49,7 +53,7 @@ with it, without changing anything else in `pkgs`:
 ```
 
 `overlays.default` adds `duckdb` (replacing nixpkgs' one), `duckdbVersions`, `chdb`, `neug`,
-`neug-c` and `zvec`.
+`neug-c`, `zvec` and `zvec-c`.
 Replacing `duckdb` has a cost, described in [the DuckDB page](docs/duckdb.md#as-an-overlay).
 
 ## How an engine is packaged
