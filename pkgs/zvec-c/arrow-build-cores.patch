@@ -1,0 +1,15 @@
+Arrow is built by a CMake project of its own, inside one job of the build. Size its jobs from the
+cores the build was given, and take half of them: its compute kernels need gigabytes each.
+
+--- a/thirdparty/arrow/CMakeLists.txt
++++ b/thirdparty/arrow/CMakeLists.txt
+@@ -31,6 +31,9 @@
+ include(ProcessorCount)
+ 
+ ProcessorCount(NPROC)
++if(DEFINED ENV{NIX_BUILD_CORES} AND NOT "$ENV{NIX_BUILD_CORES}" STREQUAL "0")
++  math(EXPR NPROC "($ENV{NIX_BUILD_CORES} + 1) / 2")
++endif()
+ 
+ set(ARROW_CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+ if(NOT ARROW_CMAKE_BUILD_TYPE)

@@ -114,9 +114,10 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "zvec, an in-process vector database: the static libraries of its core, as NeuG links them";
+    description = "Static libraries of the core of zvec, an in-process vector database, as NeuG links them";
     homepage = "https://github.com/alibaba/zvec";
     license = lib.licenses.asl20;
+    maintainers = [ lib.maintainers.levigross ];
     platforms = lib.platforms.linux;
   };
 }
