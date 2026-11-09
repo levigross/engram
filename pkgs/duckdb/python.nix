@@ -245,7 +245,7 @@ buildPythonPackage {
           [
             "-DOVERRIDE_GIT_DESCRIBE=v${build.version}-0-g${build.rev}"
             # DuckDB's CMake adds jemalloc on Linux. Left out, as the 1.5 module was built and
-            # checked; it is not what stops the 1.4 module from loading (see the README).
+            # checked; it is not what stops the 1.4 module from loading (see docs/duckdb.md, "Evidence: import duckdb fails in the 1.4 module").
             "-DSKIP_EXTENSIONS=jemalloc"
           ]
           ++ lib.optional (lib.versionAtLeast build.version "1.5") (
