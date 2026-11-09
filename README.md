@@ -1,25 +1,16 @@
 # engram
 
-Embedded engines for data and AI, built with Nix. The repository was `levigross/duckdb-nix`
-until it held more than DuckDB; GitHub redirects the old address (for as long as nobody else
-takes the name), and every attribute, `lib.duckdb` and the overlay are unchanged.
+Embedded engines for data and AI, built with Nix: databases that run inside your process.
+Each is built from source, or is a binary pinned by hash, and nothing is fetched when your program runs.
 
-Databases that run inside your process, packaged so that a Nix build gets them whole:
-built from source, or a binary pinned by hash, and nothing fetched when the program runs.
-For each engine the aim is the library, a Python module and a Rust program that links it,
-built and checked on three nixpkgs. Each engine's page says which of them are, and which are
-not.
+| Engine | What it is | Use it from | Page |
+|---|---|---|---|
+| DuckDB | Analytical SQL (2.0.0, 1.5.2, 1.4.3), with the extensions that are not in DuckDB's tree linked in | CLI, `libduckdb`, Python, Rust | [DuckDB](docs/duckdb.md) |
+| chDB | ClickHouse as a library (prebuilt binary, pinned by hash) | C, Python, Rust | [chDB](docs/chdb.md) |
+| NeuG | Graph database (Cypher) 0.3.0, with its six extensions | C++, C, Rust, Python, Node.js | [NeuG](docs/neug.md) |
+| zvec | Vector database: a C library at v0.8.1 and the zvec team's Rust crates | C, Rust (C++ static libraries for NeuG) | [zvec](docs/zvec.md) |
 
-| Engine | What it is | How it is provided | For | Details |
-|---|---|---|---|---|
-| DuckDB | analytical SQL | built from source (2.0.0, 1.5.2, 1.4.3), with the extensions that are not in DuckDB's tree linked in | CLI, `libduckdb`, Python, Rust | [docs/duckdb.md](docs/duckdb.md) |
-| chDB | ClickHouse as a library | the upstream's prebuilt `libchdb` and Python wheels, pinned by hash. They are not signed | C (its C++ header does not link), Python, Rust | [docs/chdb.md](docs/chdb.md) |
-| NeuG | graph database (Cypher) | built from source (0.3.0), with its six extensions, which `LOAD` finds in the package. Its service mode runs on cpp-httplib instead of brpc, which crashed in a Python process | C++, a C interface and Rust crates (this repository's), Python, Node.js | [docs/neug.md](docs/neug.md) |
-| zvec | vector database | built from source, in two packages: the core libraries as NeuG's `vector_search` links them, and the C API library at v0.8.1. The Rust crates are the zvec team's own, pinned by hash | C++ (static), a C library, Rust | [docs/zvec.md](docs/zvec.md) |
-
-Only x86_64-linux with glibc has been built.
-
-## Using it
+## Try it
 
 ```sh
 nix build github:levigross/engram#duckdb-all      # DuckDB with every extension it can link
@@ -31,18 +22,13 @@ nix flake show github:levigross/engram            # everything there is
 ```
 
 Packages are offered for three nixpkgs: unstable under its own name, 26.05 with the prefix
-`stable-` and 25.11 with `previous-` (`#stable-chdb`, `#previous-duckdb-all`). A package that
-a nixpkgs cannot build is not offered there. Being offered is not being built: DuckDB and
-chDB, NeuG and zvec were built and checked on all three, with their test suites, except the
-Python module of NeuG, which 25.11 cannot build and is not offered on (see its page). That
-includes the unit tests of zvec for its C library: 153 programs of its core libraries and 74 of
-its database layer. They also run with io_uring taken away from the library (with libaio and
-without), for systems that have none ([how](docs/zvec.md#without-io_uring)). One of them fails now and
-then on its first run and is run again when it does (see
-[its page](docs/zvec.md#a-test-that-fails-on-its-first-run)).
+`stable-` and 25.11 with `previous-` (`#stable-chdb`, `#previous-duckdb-all`). A package that a nixpkgs cannot
+build is not offered there.
 
-From your own flake, `lib.<engine>` takes your package set and gives the engine, built
-with it, without changing anything else in `pkgs`:
+## Use it from your flake
+
+`lib.<engine>` takes your package set and gives the engine, built with it, without changing anything
+else in `pkgs`:
 
 ```nix
 {
@@ -54,53 +40,38 @@ with it, without changing anything else in `pkgs`:
 }
 ```
 
-`overlays.default` adds `duckdb` (replacing nixpkgs' one), `duckdbVersions`, `chdb`, `neug`,
-`neug-c`, `zvec` and `zvec-c`.
-Replacing `duckdb` has a cost, described in [the DuckDB page](docs/duckdb.md#as-an-overlay).
+`overlays.default` adds `duckdb` (replacing nixpkgs' one), `duckdbVersions`, `chdb`, `neug`, `neug-c`,
+`zvec` and `zvec-c`. Replacing `duckdb` has a cost, described in
+[the DuckDB page](docs/duckdb.md#as-an-overlay).
 
-## How an engine is packaged
+## What has been checked
 
-The same things for each, whatever the engine is:
+- Each engine was built on all three nixpkgs and its checks run, with the upstream's own test suites
+  wherever that is possible. A few checks run on fewer (NeuG's Python module is not offered on 25.11);
+  the engine's page and the [TODO](docs/TODO.md) say which.
+- Every check has something that must fail. What each check proves, and what it leaves out and
+  why, is on the engine's page under *Checks*.
+- Built and checked on **x86_64-linux with glibc only**. The flake also lists aarch64-linux and
+  aarch64-darwin; they are untried.
+- "Not built" means nothing was run, not that it fails. Everything that is not done or not known
+  is in the [TODO](docs/TODO.md).
 
-- `pkgs/<engine>`: the package. What it fetches is pinned with a hash that a script
-  (`scripts/update-<engine>.sh`) computes from the files themselves, and compares with
-  what the upstream publishes where it publishes anything.
-- `nix/<engine>`: the overlay, the packages and the checks of the flake.
-- Checks that run the engine, each with something that must fail: a program that links
-  the library is built and run, and the same program or script without the engine, or
-  with a wrong query, or without a certificate it is meant to trust, must not pass.
-  A check that cannot fail proves nothing.
-- Nothing is fetched at build time and nothing at run time. Where an upstream's build
-  wants a git checkout, a network or `/usr/bin/env`, what it does is done in the Nix
-  build instead, and the engine's page lists it.
-- What is known to work and what is not is written down with the evidence: a platform
-  or a nixpkgs that was not built is "not built", which is not "does not work".
+## Documentation
 
-### Rust and TLS
-
-Some Rust crates for an engine bring a TLS stack with them. People need one or the
-other, so the Rust programs of this repository are built with a choice of `tls`,
-`"openssl"` or `"rustls"`, and a feature of a crate that needs TLS when the program runs
-uses rustls. How that is done for chDB, and what was checked, is in
-[docs/chdb.md](docs/chdb.md#rust).
-
-### Adding an engine
-
-Copy the shape: `pkgs/<engine>` with a `pin.json`, `scripts/update-<engine>.sh`,
-`nix/<engine>/{default,overlay,packages,checks}.nix`, an entry in `nix/overlay.nix`,
-`nix/lib.nix` and `flake.nix`, and a page in `docs/`. Flakes see only tracked files;
-stage new ones. Style is checked by `scripts/lint.sh` (`nix develop`), and CI evaluates
-every output for every system without import from derivation.
-
-## Checks and CI
-
-`nix flake check` builds every check, which for DuckDB takes hours (see
-[its page](docs/duckdb.md#checks)). GitHub Actions (`.github/workflows/ci.yml`) runs what
-does not need a long build: style, evaluation for every system, the pins and sources of
-DuckDB, and CMake configuring DuckDB for each version on each nixpkgs.
+| Page | What is in it |
+|---|---|
+| [DuckDB](docs/duckdb.md), [chDB](docs/chdb.md), [NeuG](docs/neug.md), [zvec](docs/zvec.md) | How to get and use each engine, what to watch out for, and (for maintainers) how it is built and checked |
+| [TODO](docs/TODO.md) | What is not done, not known or not fixed, for all engines |
+| [Packaging](docs/packaging.md) | A glossary, how an engine is packaged, how to update a pin, checks, CI, adding an engine |
 
 ## License
 
 [Apache-2.0](LICENSE) for the Nix code and scripts in this repository. The engines, their
 extensions and the crates are not part of it and keep their own licenses: DuckDB MIT,
 chDB, ClickHouse, NeuG and zvec Apache-2.0.
+
+---
+
+The repository was `levigross/duckdb-nix` until it held more than DuckDB. GitHub redirects the old
+address for as long as nobody else takes the name. Every attribute, `lib.duckdb` and the overlay are
+unchanged.
