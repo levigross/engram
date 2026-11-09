@@ -1,5 +1,5 @@
 # zvec's C API as a shared library, libzvec_c_api.so, built from a release of zvec (pin.json).
-# What its build needs, and why: docs/zvec.md.
+# What its build needs, and why: docs/zvec.md#how-zvec-c-is-built.
 {
   lib,
   stdenv,
@@ -16,7 +16,7 @@ let
   # the archives that Arrow's CMake would download, by hash (pin.json)
   arrowSources = lib.mapAttrs (_: d: fetchurl { inherit (d) name url hash; }) pin.arrow;
 
-  # GCC >= 15 loses small values stored in a Cube (docs/zvec.md); same change as ../zvec
+  # GCC >= 15 loses small values stored in a Cube (docs/zvec.md#the-header-repair); same change as ../zvec
   cubePatch = ./cube-storage.patch;
 in
 stdenv.mkDerivation (finalAttrs: {

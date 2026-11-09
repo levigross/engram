@@ -15,7 +15,7 @@ permissions:
 
 # These jobs build no DuckDB, no NeuG and no zvec (its C library, and the tests of
 # it and of its Rust crates): a full build with the test suite takes hours and
-# does not fit a hosted runner (see "Checks" in the README). They cover
+# does not fit a hosted runner (see "CI" in docs/packaging.md). They cover
 # what breaks without one: style, evaluation, the pins and patches of every
 # extension, CMake configuring DuckDB with all the extensions, and chDB, which is
 # a binary that is fetched, not built.

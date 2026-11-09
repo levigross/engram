@@ -13,7 +13,7 @@
   extraTargets ? [ ],
   # a ctest pattern for the tests that must not run at the same time as others, which run last
   serial ? "",
-  # test files that CMake does not register as a test on this system (docs/zvec.md#checks)
+  # test files that CMake does not register as a test on this system (docs/zvec.md#other-tests-and-programs-not-run)
   notRegistered ? [ ],
   # The tests that skip themselves ("[  SKIPPED ] Suite.Test") in every mode, and in the modes
   # without io_uring besides (by mode name, as in ../io). A test that skips itself for another

@@ -1,5 +1,5 @@
 # zvec's unit tests of the libraries that need no Arrow: ailego, core and turbo.
-# What skips and why, and the one test that is run again: docs/zvec.md#checks.
+# What skips and why, and the one test that is run again: docs/zvec.md#the-tests-that-skip-themselves.
 { pkgs, io }:
 
 let
