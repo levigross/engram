@@ -141,7 +141,7 @@ in
   #    and the other fails with "Failed to reserve runtime file ...: No such file or directory"
   #    (the log of the build that left it out). Why they draw the same: the check neug-fork-uuid.
   #    A defect of the library, still in upstream's main (src/utils/uuid.cc, 2026-11-06), and
-  #    not of the build. The other 27 cases of test_connection run.
+  #    not of the build. The other 31 cases of test_connection run.
   #  - the two entries of ctest named TEST: CMake's gtest_add_tests reads the C++ files for the
   #    macros of googletest and finds TEST( inside WSHORTEST(weight), a word of a query in a
   #    string (tests/compiler/path_test.cpp, twice). They name no test; the cases themselves,
