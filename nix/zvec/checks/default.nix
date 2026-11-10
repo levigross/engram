@@ -111,7 +111,7 @@ in
       status=0
       for d in ailego core turbo; do
         echo "=== $d: $(ctest --test-dir tests/$d -N | grep -c 'Test *#') tests"
-        ctest --test-dir tests/$d -j4 --timeout 1500 --output-on-failure --no-tests=error || status=1
+        ctest --test-dir tests/$d -j"$NIX_BUILD_CORES" --timeout 1500 --output-on-failure --no-tests=error || status=1
       done
       [ $status = 0 ]
       runHook postCheck

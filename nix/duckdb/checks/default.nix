@@ -11,6 +11,52 @@ in
 {
   extension-pins = import ./extension-pins.nix { inherit pkgs; };
 
+  # Evaluate the public extension API without compiling DuckDB or Rust. Archives
+  # must come from the selected values, including custom names and overrides.
+  rust-extension-api =
+    let
+      extension =
+        name: archive:
+        duckdb.mkExtension {
+          inherit name;
+          version = "0.1.0";
+          src = ../../../templates/extension;
+          rust = {
+            package = "/custom-rust";
+            inherit archive;
+            cmakeVariable = "${name}_RUST_LIBRARY";
+          };
+        };
+      custom = extension "custom" "libcustom.a";
+      other = extension "other" "libother.a";
+      bundledName = extension "delta" "libreplacement.a";
+      single = ext: duckdb.withExtensions (_: [ ext ]);
+      multiple =
+        ext:
+        duckdb.withExtensions (_: [
+          ext
+          other
+        ]);
+      expectedFlag =
+        ext: lib.cmakeFeature ext.rust.cmakeVariable "${ext.rust.package}/${ext.rust.archive}";
+      usesSelectedArchive =
+        ext:
+        lib.elem (expectedFlag ext) (single ext).cmakeFlags
+        && lib.elem (expectedFlag ext) (single ext).pythonBuild.extensionFlags;
+    in
+    assert lib.assertMsg (usesSelectedArchive custom) "custom Rust archive was not selected";
+    assert lib.assertMsg (usesSelectedArchive bundledName) "replacement Rust archive was not selected";
+    assert lib.assertMsg (
+      lib.any (lib.hasSuffix "/lib/custom.a") (multiple custom).cmakeFlags
+      && lib.any (lib.hasSuffix "/lib/other.a") (multiple custom).pythonBuild.extensionFlags
+    ) "custom Rust archives were not isolated";
+    assert lib.assertMsg (
+      (multiple custom).cmakeFlags != (multiple (extension "custom" "libchanged.a")).cmakeFlags
+    ) "isolation ignored the selected Rust archive";
+    pkgs.runCommand "duckdb-rust-extension-api-check" { } ''
+      touch $out
+    '';
+
   # Reads a CSV over HTTP, which needs httpfs. The same query must fail
   # without it, so the check cannot pass by accident.
   httpfs = pkgs.runCommand "duckdb-httpfs-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''

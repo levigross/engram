@@ -15,3 +15,4 @@ in
   core-tests = import ./core-tests.nix { inherit pkgs io; };
   db-tests = import ./db-tests.nix { inherit pkgs io; };
 }
+// import ./python.nix { inherit pkgs; }

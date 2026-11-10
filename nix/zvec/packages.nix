@@ -15,6 +15,7 @@ _:
         }
         // lib.optionalAttrs (lib.meta.availableOn nixpkgs.stdenv.hostPlatform nixpkgs.zvec-c) {
           inherit (nixpkgs) zvec-c;
+          python3-zvec = nixpkgs.zvec-c.pythonModule nixpkgs.python3Packages;
 
           # Development only: stop after CMake has configured
           dev-configure-zvec-c = nixpkgs.zvec-c.overrideAttrs {

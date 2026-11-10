@@ -1,6 +1,6 @@
 # What must work with the C interface of NeuG and the Rust crates made on it, each check with
 # something that must fail, so that it cannot pass by accident.
-{ pkgs }:
+{ pkgs, craneLib }:
 
 let
   inherit (pkgs)
@@ -11,7 +11,7 @@ let
     ;
   extensions = lib.escapeShellArgs neug.extensions;
   shim = ../../../bindings/neug-c;
-  rust = import ../rust.nix { inherit pkgs; };
+  rust = import ../rust.nix { inherit pkgs craneLib; };
 in
 {
   # chDB and NeuG in one process. Each brings its own protobuf, abseil, glog and allocator, and
@@ -204,3 +204,4 @@ in
         touch $out
       '';
 }
+// rust.checks

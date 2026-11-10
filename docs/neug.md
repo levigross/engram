@@ -180,6 +180,14 @@ while let Some(row) = rows.next() {
   (`NEUG_INCLUDE_DIR`). With Nix, set them to `lib` and `include` of `neug-c`.
 - The crates have no dependency outside the repository, so there is nothing to vendor.
   `examples/neug-rust-consumer` is a program that uses them.
+- Crane builds the bindings and example with the pinned Rust toolchain. Separate
+  `neug-rust-bindings-tests`, `neug-rust-bindings-clippy`,
+  `neug-rust-consumer-clippy` and formatting checks reuse dependency builds.
+  `nix develop .#rust-neug` supplies the toolchain and native library environment.
+- Normal cell access uses safe `Row::get`. The low-level
+  `FromCell::from_cell` method is unsafe: callers must provide a live native result
+  positioned on a row and keep it valid during the call. A compile-fail doctest
+  checks that a caller cannot invoke it through safe Rust.
 - `nix/neug/rust.nix` builds that program with a choice of `tls`, as the other Rust programs of
   this repository: `"none"` (what the crates need, which the lock file must show),
   `"rustls"` or `"openssl"`. Nothing in the crates uses TLS, so the choice only asserts and adds

@@ -29,6 +29,15 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - run: nix develop --command scripts/lint.sh
 
+  rust-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix build --no-link .#checks.x86_64-linux.neug-rust-bindings-fmt .#checks.x86_64-linux.neug-rust-consumer-fmt
+
   # Every package and check of every system evaluates. Import from derivation is
   # off, as Hydra has it: evaluating must not build.
   evaluate:

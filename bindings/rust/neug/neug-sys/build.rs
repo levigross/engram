@@ -26,7 +26,11 @@ fn main() {
              neug-c builds. Nothing is built or downloaded here.",
         );
     };
-    let library = if cfg!(target_os = "macos") { "libneug_c.dylib" } else { "libneug_c.so" };
+    let library = if cfg!(target_os = "macos") {
+        "libneug_c.dylib"
+    } else {
+        "libneug_c.so"
+    };
     if !lib_dir.join(library).exists() {
         fail(&format!("{} has no {library}", lib_dir.display()));
     }

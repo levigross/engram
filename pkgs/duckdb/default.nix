@@ -118,16 +118,17 @@ let
       # link, so each is given a private one (see isolate-rust.nix).
       withRust = lib.filter (ext: ext.rust != null) selected;
       rustArchive = ext: "${ext.rust.package}/${ext.rust.archive}";
+      selectedRustArchives = lib.listToAttrs (
+        map (ext: lib.nameValuePair ext.name (rustArchive ext)) withRust
+      );
       rustArchives =
         if lib.length withRust > 1 then
           let
-            isolated = isolateRust (
-              lib.genAttrs (map (ext: ext.name) withRust) (name: rustArchive available.${name})
-            );
+            isolated = isolateRust selectedRustArchives;
           in
           lib.genAttrs (map (ext: ext.name) withRust) (name: "${isolated}/lib/${name}.a")
         else
-          lib.genAttrs (map (ext: ext.name) withRust) (name: rustArchive available.${name});
+          selectedRustArchives;
 
       # The rest of what the extensions need: the Rust libraries they link, and
       # the flags their definitions add.

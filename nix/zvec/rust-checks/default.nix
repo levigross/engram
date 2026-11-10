@@ -8,7 +8,6 @@ let
   inherit (pkgs) lib zvec-c;
   policy = import ./policy.nix { inherit lib; };
   consumer = pkgs.callPackage ./consumer.nix { };
-  pin = lib.importJSON ./pin.json;
 
   program = consumer;
 
@@ -16,11 +15,7 @@ let
   # the crates of crates.io were made from: scripts/update-zvec-rust.sh checks that every file
   # of both is the same). Its submodule, which is zvec itself, is not fetched: the library is
   # the package zvec-c.
-  src = pkgs.fetchFromGitHub {
-    owner = "zvec-ai";
-    repo = "zvec-rust";
-    inherit (pin) rev hash;
-  };
+  src = import ./source.nix { inherit pkgs; };
 
   # the copy of the lock file of the repository that the tests are built with (a build cannot
   # read one from a fetched source), and the one of the example
@@ -33,18 +28,8 @@ let
   packages =
     lock: lib.length (lib.filter (line: lib.hasPrefix "name = " line) (lib.splitString "\n" lock));
 
-  # What the C API has that the crates do not bind, as of zvec-rust 0.8.0, which was made for
-  # an earlier version of zvec than the library here (v0.8.0-beta2, 30 commits before v0.8.1):
-  # grouped queries (and the results of them), the product quantizer, and a function to add a
-  # field by a structure. A newer crate that binds one fails the check `abi` until the list is
-  # changed.
-  unbound = [
-    "zvec_collection_group_by_query"
-    "zvec_doc_add_field_by_struct"
-    "zvec_group_results_free"
-    "zvec_index_params_get_quantizer_pq"
-    "zvec_index_params_set_quantizer_pq"
-  ];
+  # The local patches bind every function exported by the pinned C library.
+  unbound = [ ];
 in
 {
   # The lock files have no crate of TLS or HTTP and none from git: the function that says so
@@ -123,7 +108,9 @@ in
         # the functions that the crate declares, and those that the library exports
         grep -oE 'pub fn zvec_[a-z0-9_]+' ${src}/zvec-sys/src/lib.rs | sed 's/^pub fn //' | sort -u > bound
         nm -D --defined-only ${zvec-c}/lib/libzvec_c_api.so | awk '$2 ~ /^[A-Za-z]$/ { print $3 }' | sort -u > exported
-        printf '%s\n' ${lib.concatStringsSep " " unbound} | sort -u > unbound.expected
+        printf '%s' ${
+          lib.escapeShellArg (lib.concatMapStrings (name: "${name}\n") unbound)
+        } > unbound.expected
         echo "the crate declares $(wc -l < bound) functions, the library exports $(wc -l < exported)"
 
         # <bound> <unbound that is expected>
@@ -150,19 +137,21 @@ in
           echo "a function that the library lacks was accepted" >&2
           exit 1
         fi
-        grep -v '^zvec_group_results_free$' unbound.expected > expected-fewer
-        if compare bound expected-fewer 2>/dev/null; then
-          echo "a function that is not bound was not noticed" >&2
+        grep -v '^zvec_group_results_free$' bound > bound-fewer
+        if compare bound-fewer unbound.expected 2>/dev/null; then
+          echo "a missing binding was not noticed" >&2
           exit 1
         fi
-        { cat bound; echo zvec_group_results_free; } | sort -u > bound-more
-        if compare bound-more unbound.expected 2>/dev/null; then
+        echo zvec_group_results_free > expected-extra
+        if compare bound expected-extra 2>/dev/null; then
           echo "a function that is bound, and expected not to be, was accepted" >&2
           exit 1
         fi
 
         touch $out
       '';
+
+  abi-layout = import ./abi-layout.nix { inherit pkgs src; };
 
   # The tests of the crates, the zvec team's own, run against the library of zvec-c
   tests = import ./tests.nix {

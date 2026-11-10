@@ -84,6 +84,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs what fits a hosted runner:
 | Job | What it does |
 |---|---|
 | `lint` | `scripts/lint.sh`: formatting, dead code, shell and workflow lint |
+| `rust-format` | Checks the formatting of the repository-owned NeuG Rust bindings and example with the pinned toolchain |
 | `evaluate` | Every package and check of every system evaluates, without import from derivation (as Hydra has it) |
 | `sources` | Fetches every source and runs the `extension-pins` checks of DuckDB |
 | `configure` | CMake configures DuckDB with every extension, per version per nixpkgs (nine jobs), without compiling |
@@ -111,3 +112,15 @@ tracked files, so `git add` new files before you build.
 
 `scripts/lint.sh` (run it in `nix develop`) checks `nixfmt`, `deadnix`, `statix`, `shellcheck` on every
 tracked `.sh` file, and `actionlint`. CI runs the same script.
+
+For Rust work, `nix develop .#rust` supplies the pinned Rust compiler, Cargo,
+rustfmt, Clippy, rust-src and rust-analyzer. On x86_64 Linux,
+`nix develop .#rust-neug` also supplies NeuG's native headers and library and sets
+the variables used by its build scripts.
+
+The repository-owned NeuG bindings and example use Crane, with separate dependency
+builds reused by compilation, tests and Clippy. Their formatting, Clippy and bindings
+test derivations are exposed under `checks.<system>.neug-rust-*`, including the
+`stable-` and `previous-` variants. Rust checks run Cargo with `--locked --offline`.
+The other engines retain `buildRustPackage`, including their native integration and
+the symbol isolation required for DuckDB's Rust extension archives.

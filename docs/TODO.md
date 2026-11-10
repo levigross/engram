@@ -143,7 +143,6 @@ These apply to every engine.
 ## zvec
 
 ### Known defects, not fixed
-- **Rust cannot run a grouped query or set the PQ quantizer.** The crates (`zvec-rust-sys` and `zvec-rust` 0.8.0) bind neither. Five functions of the library are not bound: `zvec_collection_group_by_query`, `zvec_group_results_free`, `zvec_index_params_get_quantizer_pq`, `zvec_index_params_set_quantizer_pq` and `zvec_doc_add_field_by_struct`. A `GroupBySearchQuery` can be built in Rust and has no method to run it; the C API has all five. Four of the five are additions since zvec v0.8.0-beta2 (the version the crates were made for); one was already in that header. [Evidence](zvec.md#zvec-rust-abi)
 - **Upstream issue #875 is not worked around.** FastPFOR is compiled with `-msse4.1`, which is not portable. [Page](zvec.md#things-to-know)
 - **Upstream issue #781 is not worked around.** `group_by_query` returns nothing after a FLAT index with `use_id_map=false` is opened again. [Page](zvec.md#things-to-know)
 - **`GetDocCount()` is twice the number of vectors added.** It is so for flat and HNSW indexes of the `zvec` static libraries, also with the header repair. The searches show nothing is stored twice, so `zvec-library` prints the count and does not assert it. Why it is twice was not looked into. [Evidence](zvec.md#zvec-library)
@@ -156,7 +155,6 @@ These apply to every engine.
 - **The speed of the library without io_uring is not measured.** `pread` is synchronous, and the library says that "performance may be degraded". [Evidence](zvec.md#the-c-library)
 - **`Collection` being `Send` and `Sync` was not tested.** The crate claims it with an `unsafe impl`; the header of the C API says nothing about thread safety, and neither the example nor the tests of the crates (read for it) start a thread of their own. [Page](zvec.md#things-to-know)
 - **The crates are tested against zvec v0.8.1 though they were made for v0.8.0-beta2.** The header differs by additions only; their own tests and `zvec-rust-abi` show that what they bind works, not that nothing changed in what the functions do. [Page](zvec.md#things-to-know)
-- **The Python module of zvec is not built.** v0.8.1 has one. [Page](zvec.md#things-to-know)
 - **The skip lists of the unit tests assume an x86_64 CPU with AVX-512 and VNNI and an unprivileged user.** Some tests skip for want of an instruction set (AVX-512, VNNI, FP16) or because the user can write to a file meant to be read-only. On another CPU or user the check names the difference; none was tried. [Evidence](zvec.md#zvec-c-core-tests)
 - **Other platforms are not built: only x86_64-linux with glibc.** On arm and riscv FastPFOR fetches simde while it is configured, which a sandbox cannot do. [Page](zvec.md#get-it)
 
@@ -165,6 +163,7 @@ These apply to every engine.
 - **libaio is not provided and is not on the `RUNPATH` of `zvec-c`.** On a kernel without io_uring the library reads with `pread` unless libaio is on the library path. Putting libaio on the `RUNPATH` is an open package decision: it changes the package, and every check with it. [Evidence](zvec.md#without-io_uring)
 - **The 59 tests of the database layer (`tests/db`) are not run for the `zvec` package.** They are of code that is not part of that package (they need Arrow 21, RocksDB and protobuf). `zvec-c-db-tests` runs the database layer for `zvec-c`. [Why](zvec.md#other-tests-and-programs-not-run)
 - **20 tests skip themselves in every mode:** 4 disabled upstream (`GTEST_SKIP()` first in the test) and 16 for NEON kernels, which need AArch64 and never run on x86_64. [List](zvec.md#the-tests-that-skip-themselves)
+- **27 Python tests retain upstream skips:** 12 recall variants marked as a known bug and 15 opt-in embedding/reranker integrations requiring models or external services. The other 1,869 pass on unstable. [Checks](zvec.md#python-checks)
 - **`perf_bench_test` runs at a reduced scale** (5000 documents and one iteration, not 100000 and 30), with `ZVEC_RUN_PERF_BENCH=1`, because it skips its 17 cases otherwise. [Evidence](zvec.md#zvec-c-db-tests)
 - **No control for `zvec-params` and `zvec-c-params` on a GCC before 15 or on clang.** They do not lose the value, so the headers as upstream has them cannot be shown to fail. [Evidence](zvec.md#zvec-params)
 - **The helper members `zvec-build` (published as `zvec-rust-build`) and `zvec-rpath-smoke` of the crates' workspace, and the criterion benchmarks, are not run.** This repository does not provide the helpers, and the benchmarks measure and do not test. [Why](zvec.md#other-tests-and-programs-not-run)
@@ -172,5 +171,4 @@ These apply to every engine.
 ### Follow-up work
 - **Build the test suites once and run them per mode.** `zvec-c-tests`, `zvec-c-core-tests`, `zvec-c-db-tests` and `zvec-rust-tests` run their three or four passes (the machine's own I/O, `libaio`, `pread`) inside one derivation, about 10 to 11 minutes of tests for each pass of the unit tests. [Checks](zvec.md#checks)
 - **Split the outputs of `zvec-c` and `zvec` into `out` and `dev`.** Both put the library, the header and the pkg-config file or static libraries in one output. [What is in it](zvec.md#what-is-in-it)
-- **`pkgs/zvec` hard-codes `jobs ? 16` and `-j16`.** Making it follow the build's cores changes the derivation of `zvec` and so rebuilds NeuG. [How it is built](zvec.md#how-zvec-is-built)
 - **De-duplicate the update scripts** (`scripts/update-zvec.sh`, `update-zvec-c.sh`, `update-zvec-rust.sh`, and the other engines'): peeling an annotated tag to its commit is written out in `update-zvec-c.sh`, `update-zvec-rust.sh`, `update-neug.sh` and `update-duckdb.sh`, and `update-zvec.sh` and `update-zvec-c.sh` both run `nix-prefetch-git` and convert its hash. [Pins](zvec.md#pins-and-update-scripts)

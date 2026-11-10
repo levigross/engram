@@ -16,6 +16,9 @@
     # NeuG, an embedded graph database: libneug, its headers and extensions
     neug = pkgs: (pkgs.extend self.overlays.default).neug;
 
+    # NeuG's C interface, also used by its Rust bindings
+    neug-c = pkgs: (pkgs.extend self.overlays.default).neug-c;
+
     # zvec, an in-process vector database: its core libraries, as NeuG links them
     zvec = pkgs: (pkgs.extend self.overlays.default).zvec;
 

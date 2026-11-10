@@ -1,0 +1,432 @@
+--- a/src/api_completion_tests.rs
++++ b/src/api_completion_tests.rs
+@@ -0,0 +1,158 @@
++//! Regression coverage for the local v0.8.1 API additions to the pinned crates.
++use std::sync::Once;
++use crate::*;
++
++fn init() {
++    static INIT: Once = Once::new();
++    INIT.call_once(|| initialize(None).unwrap());
++}
++
++#[test]
++fn typed_fields_copy_their_data_and_reject_invalid_names() {
++    init();
++    let mut doc = Doc::new().unwrap();
++    {
++        let text = String::from("copied\0bytes");
++        let binary = vec![0, 1, 255];
++        let vector = vec![0.5, 1.0];
++        doc.add_field("text", FieldValue::String(&text)).unwrap();
++        doc.add_field("binary", FieldValue::Binary(&binary))
++            .unwrap();
++        doc.add_field("vector", FieldValue::VectorF32(&vector))
++            .unwrap();
++    }
++    doc.add_field("bool", FieldValue::Bool(true)).unwrap();
++    doc.add_field("int32", FieldValue::Int32(-42)).unwrap();
++    doc.add_field("int64", FieldValue::Int64(i64::MIN)).unwrap();
++    doc.add_field("uint32", FieldValue::Uint32(u32::MAX))
++        .unwrap();
++    doc.add_field("uint64", FieldValue::Uint64(u64::MAX))
++        .unwrap();
++    doc.add_field("float", FieldValue::Float(1.25)).unwrap();
++    doc.add_field("double", FieldValue::Double(-2.5)).unwrap();
++    assert_eq!(
++        doc.get_string("text").unwrap().as_deref(),
++        Some("copied\0bytes")
++    );
++    assert_eq!(doc.get_binary("binary").unwrap(), Some(vec![0, 1, 255]));
++    assert_eq!(doc.get_vector_f32("vector").unwrap(), Some(vec![0.5, 1.0]));
++    assert_eq!(doc.get_bool("bool").unwrap(), Some(true));
++    assert_eq!(doc.get_i32("int32").unwrap(), Some(-42));
++    assert_eq!(doc.get_i64("int64").unwrap(), Some(i64::MIN));
++    assert_eq!(doc.get_u32("uint32").unwrap(), Some(u32::MAX));
++    assert_eq!(doc.get_u64("uint64").unwrap(), Some(u64::MAX));
++    assert_eq!(doc.get_f32("float").unwrap(), Some(1.25));
++    assert_eq!(doc.get_f64("double").unwrap(), Some(-2.5));
++    assert_eq!(
++        doc.add_field("invalid\0name", FieldValue::Bool(true))
++            .unwrap_err()
++            .code,
++        ErrorCode::InvalidArgument
++    );
++}
++
++#[test]
++fn pq_settings_round_trip_and_native_validation_rejects_bad_values() {
++    init();
++    let mut index = IndexParams::ivf(MetricType::L2, 4, 10, false).unwrap();
++    index.set_quantize_type(QuantizeType::Pq).unwrap();
++    let pq = PqQuantizerParams {
++        num_chunk: 2,
++        num_bits: 4,
++        enable_rotate: true,
++        fast_scan: true,
++        opq_iter: 3,
++        opq_pq_iter: 2,
++    };
++    index.set_quantizer_pq(&pq).unwrap();
++    assert_eq!(index.quantize_type(), QuantizeType::Pq);
++    assert_eq!(index.quantizer_pq().unwrap(), pq);
++    assert_eq!(
++        index
++            .set_quantizer_pq(&PqQuantizerParams { num_bits: 7, ..pq })
++            .unwrap_err()
++            .code,
++        ErrorCode::InvalidArgument
++    );
++    assert_eq!(index.quantizer_pq().unwrap(), pq);
++    let mut hnsw = IndexParams::hnsw(MetricType::L2, 16, 200).unwrap();
++    assert_eq!(
++        hnsw.set_quantizer_pq(&pq).unwrap_err().code,
++        ErrorCode::InvalidArgument
++    );
++    assert_eq!(
++        hnsw.quantizer_pq().unwrap_err().code,
++        ErrorCode::InvalidArgument
++    );
++}
++
++#[test]
++fn grouped_search_returns_owned_documents_and_honors_limits_and_filters() {
++    init();
++    let path = std::env::temp_dir().join(format!("zvec-rust-groups-{}", std::process::id()));
++    let schema = CollectionSchema::builder("grouped")
++        .add_indexed_field(
++            "category",
++            DataType::String,
++            IndexParams::invert(false, false).unwrap(),
++        )
++        .add_vector_field(
++            "embedding",
++            DataType::VectorFp32,
++            2,
++            IndexParams::hnsw(MetricType::L2, 16, 200).unwrap(),
++        )
++        .build()
++        .unwrap();
++    let collection = Collection::create_and_open(path.to_str().unwrap(), &schema, None).unwrap();
++    let mut docs = Vec::new();
++    for (i, category) in ["a", "a", "b", "b"].iter().enumerate() {
++        let mut doc = Doc::new().unwrap();
++        doc.set_pk(&format!("doc{i}"));
++        doc.add_field("category", FieldValue::String(category))
++            .unwrap();
++        doc.add_vector_f32("embedding", &[i as f32, 1.0]).unwrap();
++        docs.push(doc);
++    }
++    assert_eq!(
++        collection
++            .insert(&docs.iter().collect::<Vec<_>>())
++            .unwrap()
++            .success_count,
++        4
++    );
++    collection.flush().unwrap();
++    let query = GroupBySearchQuery::new("embedding", "category", &[0.0, 1.0], 2, 1).unwrap();
++    let groups = collection.group_by_query(&query).unwrap();
++    assert_eq!(groups.len(), 2);
++    let mut labels: Vec<_> = groups.iter().map(|g| g.group_by_value.as_str()).collect();
++    labels.sort();
++    assert_eq!(labels, ["a", "b"]);
++    for group in &groups {
++        assert_eq!(group.docs.len(), 1);
++        assert_eq!(
++            group.docs[0].get_string("category").unwrap().as_deref(),
++            Some(group.group_by_value.as_str())
++        );
++    }
++    let mut filtered = GroupBySearchQuery::new("embedding", "category", &[0.0, 1.0], 2, 1).unwrap();
++    filtered.set_filter("category = 'absent'").unwrap();
++    assert!(collection.group_by_query(&filtered).unwrap().is_empty());
++    let invalid = GroupBySearchQuery::new("missing", "category", &[0.0, 1.0], 2, 1).unwrap();
++    assert!(collection.group_by_query(&invalid).is_err());
++    drop(query);
++    collection.close().unwrap();
++    // The native group arrays have already been freed, as have the collection
++    // and query. These documents must retain independent ownership.
++    assert_eq!(
++        groups
++            .iter()
++            .find(|g| g.group_by_value == "a")
++            .unwrap()
++            .docs[0]
++            .get_pk(),
++        Some("doc0")
++    );
++    drop(groups);
++    std::fs::remove_dir_all(path).unwrap();
++}
+--- a/src/collection.rs
++++ b/src/collection.rs
+@@ -5,8 +5,23 @@
+ use crate::doc::Doc;
+ use crate::error::{check_error, to_cstring, Error, ErrorCode, Result};
+ use crate::multi_query::MultiQuery;
+-use crate::query::SearchQuery;
++use crate::query::{GroupBySearchQuery, SearchQuery};
+ use crate::schema::{CollectionSchema, FieldSchema, IndexParams};
++
++/// Owned results of one group. Documents remain valid after the collection and
++/// query are dropped, and are freed normally when their Rust owners are dropped.
++pub struct GroupResult {
++    pub group_by_value: String,
++    pub docs: Vec<Doc>,
++}
++
++struct GroupResultsGuard(*mut zvec_rust_sys::zvec_group_result_t, usize);
++
++impl Drop for GroupResultsGuard {
++    fn drop(&mut self) {
++        unsafe { zvec_rust_sys::zvec_group_results_free(self.0, self.1) };
++    }
++}
+
+ /// Options for creating or opening a collection.
+ pub struct CollectionOptions {
+@@ -316,6 +331,49 @@
+     // =========================================================================
+     // DQL Operations
+     // =========================================================================
++
++    /// Searches vectors grouped by a scalar field, with per-group result limits.
++    pub fn group_by_query(&self, query: &GroupBySearchQuery) -> Result<Vec<GroupResult>> {
++        let mut results = ptr::null_mut();
++        let mut count = 0;
++        check_error(unsafe {
++            zvec_rust_sys::zvec_collection_group_by_query(
++                self.handle,
++                query.handle,
++                &mut results,
++                &mut count,
++            )
++        })?;
++        let guard = GroupResultsGuard(results, count);
++        if results.is_null() {
++            return Ok(Vec::new());
++        }
++        let mut groups = Vec::with_capacity(count);
++        for i in 0..count {
++            // The guard owns all native arrays and strings. Detach each document
++            // before wrapping it so native cleanup cannot destroy Rust-owned docs.
++            let group = unsafe { &mut *guard.0.add(i) };
++            let group_by_value = if group.group_by_value.is_null() {
++                String::new()
++            } else {
++                unsafe { CStr::from_ptr(group.group_by_value) }
++                    .to_string_lossy()
++                    .into_owned()
++            };
++            let mut docs = Vec::with_capacity(group.doc_count);
++            for j in 0..group.doc_count {
++                let doc = unsafe { ptr::replace(group.docs.add(j), ptr::null_mut()) };
++                if !doc.is_null() {
++                    docs.push(unsafe { Doc::from_raw(doc) });
++                }
++            }
++            groups.push(GroupResult {
++                group_by_value,
++                docs,
++            });
++        }
++        Ok(groups)
++    }
+
+     /// Performs a vector similarity search.
+     pub fn query(&self, query: &SearchQuery) -> Result<Vec<Doc>> {
+--- a/src/doc.rs
++++ b/src/doc.rs
+@@ -3,6 +3,20 @@
+
+ use crate::error::{check_error, to_cstring, Error, ErrorCode, Result};
+ use crate::types::DataType;
++
++/// Borrowed, typed field data, copied into the document by `Doc::add_field`.
++pub enum FieldValue<'a> {
++    Bool(bool),
++    Int32(i32),
++    Int64(i64),
++    Uint32(u32),
++    Uint64(u64),
++    Float(f32),
++    Double(f64),
++    String(&'a str),
++    Binary(&'a [u8]),
++    VectorF32(&'a [f32]),
++}
+
+ /// A document in a zvec collection.
+ ///
+@@ -56,6 +70,61 @@
+             handle,
+             owned: false,
+         }
++    }
++
++    /// Adds a typed field through the C structure API. Data is copied before
++    /// returning, so the document does not borrow the supplied name or value.
++    pub fn add_field(&mut self, name: &str, value: FieldValue<'_>) -> Result<()> {
++        use std::mem::ManuallyDrop;
++        use zvec_rust_sys::{zvec_field_value_t as V, zvec_string_t as S};
++        let name = to_cstring(name)?;
++        let (data_type, value) = match value {
++            FieldValue::Bool(v) => (DataType::Bool, V { bool_value: v }),
++            FieldValue::Int32(v) => (DataType::Int32, V { int32_value: v }),
++            FieldValue::Int64(v) => (DataType::Int64, V { int64_value: v }),
++            FieldValue::Uint32(v) => (DataType::Uint32, V { uint32_value: v }),
++            FieldValue::Uint64(v) => (DataType::Uint64, V { uint64_value: v }),
++            FieldValue::Float(v) => (DataType::Float, V { float_value: v }),
++            FieldValue::Double(v) => (DataType::Double, V { double_value: v }),
++            FieldValue::String(v) => (
++                DataType::String,
++                V {
++                    string_value: ManuallyDrop::new(S {
++                        data: v.as_ptr() as *mut _,
++                        length: v.len(),
++                        capacity: v.len(),
++                    }),
++                },
++            ),
++            FieldValue::Binary(v) => (
++                DataType::Binary,
++                V {
++                    binary_value: ManuallyDrop::new(zvec_rust_sys::zvec_byte_array_t {
++                        data: v.as_ptr(),
++                        length: v.len(),
++                    }),
++                },
++            ),
++            FieldValue::VectorF32(v) => (
++                DataType::VectorFp32,
++                V {
++                    vector_value: ManuallyDrop::new(zvec_rust_sys::zvec_float_array_t {
++                        data: v.as_ptr(),
++                        length: v.len(),
++                    }),
++                },
++            ),
++        };
++        let field = zvec_rust_sys::zvec_doc_field_t {
++            name: S {
++                data: name.as_ptr() as *mut _,
++                length: name.as_bytes().len(),
++                capacity: name.as_bytes_with_nul().len(),
++            },
++            data_type: data_type as u32,
++            value,
++        };
++        check_error(unsafe { zvec_rust_sys::zvec_doc_add_field_by_struct(self.handle, &field) })
+     }
+
+     /// Sets the primary key.
+@@ -454,13 +523,12 @@
+
+     /// Gets a string field value. Returns `Ok(None)` if the field does not exist or is null.
+     pub fn get_string(&self, name: &str) -> Result<Option<String>> {
+-        let Some((ptr, _size)) = self.get_pointer_field(name, DataType::String)? else {
++        let Some((ptr, size)) = self.get_pointer_field(name, DataType::String)? else {
+             return Ok(None);
+         };
+-        unsafe {
+-            let cstr = CStr::from_ptr(ptr as *const std::os::raw::c_char);
+-            Ok(Some(cstr.to_string_lossy().into_owned()))
+-        }
++        // String fields are length-delimited and may contain interior NULs.
++        let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, size) };
++        Ok(Some(String::from_utf8_lossy(bytes).into_owned()))
+     }
+
+     /// Gets a boolean field value. Returns `Ok(None)` if the field does not exist or is null.
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -46,21 +46,21 @@
+ pub mod types;
+
+ pub use collection::{
+-    Collection, CollectionOptions, CollectionStats, DocIterator, DocWriteResult, IndexStat,
+-    WriteResult,
++    Collection, CollectionOptions, CollectionStats, DocIterator, DocWriteResult, GroupResult,
++    IndexStat, WriteResult,
+ };
+ pub use config::{
+     initialize, io_backend_description, io_backend_type, io_backend_type_name, is_initialized,
+     shutdown, version, ConfigBuilder,
+ };
+-pub use doc::Doc;
++pub use doc::{Doc, FieldValue};
+ pub use error::{Error, ErrorCode, Result};
+ pub use multi_query::{MultiQuery, SubQuery};
+ pub use query::{
+     DiskannQueryParams, FlatQueryParams, Fts, FtsQueryParams, GroupBySearchQuery, HnswQueryParams,
+     IvfQueryParams, IvfRabitqQueryParams, SearchQuery, SearchQueryBuilder,
+ };
+-pub use schema::{CollectionSchema, FieldSchema, IndexParams};
++pub use schema::{CollectionSchema, FieldSchema, IndexParams, PqQuantizerParams};
+ pub use types::{DataType, DocOperator, IndexType, LogLevel, MetricType, QuantizeType};
+
+ /// Re-export the raw FFI bindings for advanced users.
+@@ -79,3 +79,6 @@
+         SubQuery, WriteResult,
+     };
+ }
++
++#[cfg(test)]
++mod api_completion_tests;
+--- a/src/schema.rs
++++ b/src/schema.rs
+@@ -291,6 +291,22 @@
+         })
+     }
+
++    /// Reads IVF product-quantizer settings. Non-IVF indexes return an error.
++    pub fn quantizer_pq(&self) -> Result<PqQuantizerParams> {
++        let mut params = PqQuantizerParams::default();
++        check_error(unsafe {
++            zvec_rust_sys::zvec_index_params_get_quantizer_pq(self.handle, &mut params)
++        })?;
++        Ok(params)
++    }
++
++    /// Copies IVF product-quantizer settings; rejects invalid or non-IVF params.
++    pub fn set_quantizer_pq(&mut self, params: &PqQuantizerParams) -> Result<()> {
++        check_error(unsafe {
++            zvec_rust_sys::zvec_index_params_set_quantizer_pq(self.handle, params)
++        })
++    }
++
+     /// Returns whether vectors are randomly rotated before quantization.
+     pub fn quantizer_enable_rotate(&self) -> bool {
+         unsafe { zvec_rust_sys::zvec_index_params_get_quantizer_enable_rotate(self.handle) }
+@@ -333,6 +349,11 @@
+         }
+     }
+ }
++
++/// IVF PQ configuration. Set `QuantizeType::Pq` separately. Chunk count must
++/// divide the vector dimension; FastScan requires four bits. Native validation
++/// rejects invalid bits, chunk counts, and OPQ iteration counts.
++pub type PqQuantizerParams = zvec_rust_sys::zvec_pq_quantizer_params_t;
+
+ /// Schema definition for a single field in a collection.
+ pub struct FieldSchema {
+--- a/src/types.rs
++++ b/src/types.rs
+@@ -223,6 +223,8 @@
+     Int4 = 3,
+     /// RaBitQ quantization.
+     Rabitq = 4,
++    /// Product quantization for IVF indexes.
++    Pq = 8,
+ }
+
+ impl From<u32> for QuantizeType {
+@@ -232,6 +234,7 @@
+             2 => QuantizeType::Int8,
+             3 => QuantizeType::Int4,
+             4 => QuantizeType::Rabitq,
++            8 => QuantizeType::Pq,
+             _ => QuantizeType::Undefined,
+         }
+     }

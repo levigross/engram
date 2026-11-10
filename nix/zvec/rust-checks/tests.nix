@@ -14,10 +14,8 @@
 # the default features and without io_uring (../io), with libaio to be found and without it. The
 # test programs are built once and run in each pass.
 #
-# The tests of the crates were written for zvec v0.8.0-beta2, and the library is v0.8.1: the
-# header of the one differs from the other by four functions that the crates do not call, and
-# one more that the header had before is not bound either (see the check `abi`, which lists the
-# five); the tests show that the rest is as the crates expect.
+# The original crates target v0.8.0-beta2. Local patches bind the remaining v0.8.1
+# functions and add three regressions; the same patched sources run in every mode.
 {
   pkgs,
   src,

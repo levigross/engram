@@ -13,6 +13,8 @@
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
 
+    crane.url = "github:ipetkov/crane";
+
     # the official Rust toolchain, see nix/overlay.nix
     rust-overlay = {
       url = "github:oxalica/rust-overlay";

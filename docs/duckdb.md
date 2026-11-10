@@ -349,6 +349,7 @@ A [check](packaging.md#glossary) is a build that fails if something is wrong; ea
 | Check | What it proves |
 |---|---|
 | `extension-pins` | each extension is the commit its source names, and every extension DuckDB configures is packaged |
+| `rust-extension-api` | custom and replacement Rust archives are selected for both native and Python builds; multiple archives are isolated, and changing an input changes the isolation derivation |
 | `httpfs` | reads a CSV over HTTP; the same query fails on plain DuckDB |
 | `all-extensions` | every extension is loaded without `INSTALL` and passes an offline smoke test |
 | `rust-consumer` | a Rust program on the `duckdb` crate finds the extensions; the same binary against plain DuckDB does not |
@@ -359,6 +360,7 @@ A [check](packaging.md#glossary) is a build that fails if something is wrong; ea
 What each does, beyond the table:
 
 - **`extension-pins`** compares each pin with the commit that DuckDB's configuration for the release names (its CMake files, run as CMake) or, for a community extension, that its descriptor names (`description.yml`, read as YAML). A pin that is wrong, missing or extra shows up as a diff.
+- **`rust-extension-api`** evaluates the flags for custom extensions and a replacement for a bundled extension without compiling DuckDB or Rust. These assertions also run in CI's evaluation job. It checks archive selection and isolation inputs; it does not prove that a custom archive links or runs.
 - **`all-extensions`**: a smoke test is a short offline query that needs the extension. Vortex, lance and delta do real round trips; postgres_scanner and mysql_scanner get a failed connection from libpq and MariaDB. Counting what is loaded is the check that matters: CMake carries on without an extension it could not build, and says so in a line that is easy to miss.
 - **`loadable-extensions`** exists where a version has extensions that can only be loaded (duckpgq on 1.4). It loads each into the DuckDB of the release, runs its smoke test, expects the SQL to fail without the extension, loads it by name through `extension_directory`, and expects the one built here to be refused without `-unsigned`.
 - **Other versions** of DuckDB have the same checks on every nixpkgs: `previous-all-extensions-1_4`, `stable-rust-consumer-1_5`, `loadable-extensions-1_4`.

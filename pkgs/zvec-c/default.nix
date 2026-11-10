@@ -8,6 +8,7 @@
   cmake,
   ninja,
   git,
+  callPackage,
 }:
 
 let
@@ -108,6 +109,18 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     inherit cubePatch;
+    pythonModule =
+      pythonPackages:
+      pythonPackages.callPackage ./python.nix {
+        zvec-c = finalAttrs.finalPackage;
+      };
+    # Apply these to vendored 0.8.0 crates to use the v0.8.1 C API additions.
+    rustPatches = {
+      zvec-rust-sys = ../../nix/zvec/rust-checks/sys-api.patch;
+      zvec-rust = ../../nix/zvec/rust-checks/safe-api.patch;
+    };
+    patchRustVendor =
+      cargoDeps: callPackage ../../nix/zvec/rust-checks/vendor.nix { inherit cargoDeps; };
     # for programs using the crates zvec-rust(-sys), whose build script would otherwise
     # download a library or build zvec
     rustEnv = {

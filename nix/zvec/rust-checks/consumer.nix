@@ -29,7 +29,7 @@ lib.seq lock (
         (example + "/src")
       ];
     };
-    cargoLock = { inherit lockFile; };
+    cargoDeps = zvec-c.patchRustVendor (rustPlatform.importCargoLock { inherit lockFile; });
 
     strictDeps = true;
     # for the library: the linker wrapper puts its directory in the RUNPATH, which the build

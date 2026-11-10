@@ -48,7 +48,9 @@ use error::check;
 
 /// The version of NeuG the library was built against.
 pub fn version() -> &'static str {
-    unsafe { CStr::from_ptr(sys::neug_c_version()) }.to_str().unwrap_or("unknown")
+    unsafe { CStr::from_ptr(sys::neug_c_version()) }
+        .to_str()
+        .unwrap_or("unknown")
 }
 
 /// The version of the C interface the library implements (these bindings are of
@@ -70,12 +72,20 @@ impl Config {
     /// A database in memory: a temporary directory that is gone when the database is closed
     /// (`NEUG_DB_TMP_DIR` says where, by default `/tmp`).
     pub fn in_memory() -> Self {
-        Config { path: None, max_threads: 0, read_only: false, checkpoint_on_close: true }
+        Config {
+            path: None,
+            max_threads: 0,
+            read_only: false,
+            checkpoint_on_close: true,
+        }
     }
 
     /// A database in a directory.
     pub fn at(path: impl Into<PathBuf>) -> Self {
-        Config { path: Some(path.into()), ..Config::in_memory() }
+        Config {
+            path: Some(path.into()),
+            ..Config::in_memory()
+        }
     }
 
     pub fn read_only(mut self, read_only: bool) -> Self {
@@ -133,9 +143,10 @@ impl Database {
             ));
         }
         let path = match &config.path {
-            Some(path) => Some(CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-                Error::new(sys::NEUG_E_PARAMETERS, "the path has a NUL in it")
-            })?),
+            Some(path) => Some(
+                CString::new(path.as_os_str().as_bytes())
+                    .map_err(|_| Error::new(sys::NEUG_E_PARAMETERS, "the path has a NUL in it"))?,
+            ),
             None => None,
         };
         let mut options = std::mem::MaybeUninit::<sys::neug_open_options>::uninit();
@@ -152,7 +163,9 @@ impl Database {
         let mut err = ptr::null_mut();
         let status = unsafe { sys::neug_db_open(options, &mut db, &mut err) };
         check(status, err)?;
-        Ok(Database { handle: Arc::new(DbHandle(db)) })
+        Ok(Database {
+            handle: Arc::new(DbHandle(db)),
+        })
     }
 
     /// A database in memory.
@@ -166,7 +179,10 @@ impl Database {
         let mut err = ptr::null_mut();
         let status = unsafe { sys::neug_conn_open(self.handle.0, &mut conn, &mut err) };
         check(status, err)?;
-        Ok(Connection { ptr: conn, _db: Arc::clone(&self.handle) })
+        Ok(Connection {
+            ptr: conn,
+            _db: Arc::clone(&self.handle),
+        })
     }
 }
 
@@ -253,7 +269,10 @@ impl Connection {
         let status =
             unsafe { sys::neug_conn_begin(self.ptr, (mode == TxMode::ReadOnly).into(), &mut err) };
         check(status, err)?;
-        Ok(Transaction { conn: self, finished: false })
+        Ok(Transaction {
+            conn: self,
+            finished: false,
+        })
     }
 
     pub fn in_transaction(&self) -> bool {
@@ -431,7 +450,9 @@ impl Rows<'_> {
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Row<'_>> {
         if unsafe { sys::neug_result_step(self.result.ptr) } != 0 {
-            Some(Row { result: &*self.result })
+            Some(Row {
+                result: &*self.result,
+            })
         } else {
             None
         }
@@ -447,7 +468,8 @@ impl Row<'_> {
     /// A cell, as the type it has (or one the engine widens it to: a `u32` as an `i64`). A NULL
     /// is an error for a plain type and `None` for an `Option`.
     pub fn get<T: FromCell>(&self, column: usize) -> Result<T> {
-        T::from_cell(self.result.ptr, column)
+        // The row borrows the live result and cannot advance its cursor.
+        unsafe { T::from_cell(self.result.ptr, column) }
     }
 
     /// The same by the name of the column, as the result lists it or without the number of the
@@ -455,7 +477,9 @@ impl Row<'_> {
     pub fn get_by_name<T: FromCell>(&self, name: &str) -> Result<T> {
         let strip = |s: &str| -> String {
             match s.strip_prefix('_').and_then(|r| r.split_once('_')) {
-                Some((digits, rest)) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => {
+                Some((digits, rest))
+                    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+                {
                     rest.to_owned()
                 }
                 _ => s.to_owned(),
@@ -466,7 +490,12 @@ impl Row<'_> {
             .columns
             .iter()
             .position(|c| c.name == name)
-            .or_else(|| self.result.columns.iter().position(|c| strip(&c.name) == name))
+            .or_else(|| {
+                self.result
+                    .columns
+                    .iter()
+                    .position(|c| strip(&c.name) == name)
+            })
             .ok_or_else(|| Error::new(sys::NEUG_E_COLUMN, format!("no column named {name}")))?;
         self.get(index)
     }
@@ -474,7 +503,8 @@ impl Row<'_> {
     pub fn is_null(&self, column: usize) -> Result<bool> {
         let mut out = 0;
         let mut err = ptr::null_mut();
-        let status = unsafe { sys::neug_result_is_null(self.result.ptr, column, &mut out, &mut err) };
+        let status =
+            unsafe { sys::neug_result_is_null(self.result.ptr, column, &mut out, &mut err) };
         check(status, err)?;
         Ok(out != 0)
     }
@@ -482,8 +512,16 @@ impl Row<'_> {
 
 /// A type a cell can be read as.
 pub trait FromCell: Sized {
-    #[doc(hidden)]
-    fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self>;
+    /// Read from the current row of a native result.
+    ///
+    /// # Safety
+    /// `result` must be a live NeuG result positioned on a row, and its cursor
+    /// must not be advanced or the result freed during this call.
+    ///
+    /// ```compile_fail
+    /// let _ = <i64 as neug::FromCell>::from_cell(std::ptr::null_mut(), 0);
+    /// ```
+    unsafe fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self>;
 }
 
 fn null_error() -> Error {
@@ -493,7 +531,7 @@ fn null_error() -> Error {
 macro_rules! scalar {
     ($ty:ty, $function:ident, $zero:expr) => {
         impl FromCell for $ty {
-            fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
+            unsafe fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
                 let mut out = $zero;
                 let mut err = ptr::null_mut();
                 let status = unsafe { sys::$function(result, column, &mut out, &mut err) };
@@ -515,7 +553,7 @@ scalar!(f32, neug_result_get_f32, 0f32);
 scalar!(f64, neug_result_get_f64, 0f64);
 
 impl FromCell for bool {
-    fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
+    unsafe fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
         let mut out = 0u8;
         let mut err = ptr::null_mut();
         let status = unsafe { sys::neug_result_get_bool(result, column, &mut out, &mut err) };
@@ -528,11 +566,12 @@ impl FromCell for bool {
 }
 
 impl FromCell for String {
-    fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
+    unsafe fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
         let mut text: *const c_char = ptr::null();
         let mut len = 0usize;
         let mut err = ptr::null_mut();
-        let status = unsafe { sys::neug_result_get_string(result, column, &mut text, &mut len, &mut err) };
+        let status =
+            unsafe { sys::neug_result_get_string(result, column, &mut text, &mut len, &mut err) };
         match status {
             sys::NEUG_OK => {
                 // the text belongs to the result until the next call: it is copied
@@ -547,8 +586,8 @@ impl FromCell for String {
 }
 
 impl<T: FromCell> FromCell for Option<T> {
-    fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
-        match T::from_cell(result, column) {
+    unsafe fn from_cell(result: *mut sys::neug_result, column: usize) -> Result<Self> {
+        match unsafe { T::from_cell(result, column) } {
             Ok(value) => Ok(Some(value)),
             Err(e) if e.code() == sys::NEUG_NULL => Ok(None),
             Err(e) => Err(e),

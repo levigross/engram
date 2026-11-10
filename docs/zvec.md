@@ -1,10 +1,9 @@
 # zvec, an in-process vector database, for Nix
 
 [zvec](https://github.com/alibaba/zvec) (Apache-2.0) describes itself as "a lightweight,
-lightning-fast, in-process vector database". This repository builds it from source as two
-packages, and **almost everyone wants `zvec-c`**: the latest release as a shared C library, with
-a header and a pkg-config file. It is also the library that the Rust crates of zvec's own team
-link.
+lightning-fast, in-process vector database". This repository builds C, Python and static-library
+packages from source. For C or Rust, use **`zvec-c`**: the latest release as a shared C library,
+with a header and a pkg-config file. For Python, use **`python3-zvec`**.
 
 `zvec` is the other package, and you probably do not need it. It has no C API: it is the static
 core libraries at an older commit, and it exists only because the `vector_search` extension of
@@ -13,9 +12,10 @@ core libraries at an older commit, and it exists only because the `vector_search
 | Package | What you get | Version | Use it for |
 |---|---|---|---|
 | `zvec-c` | `libzvec_c_api.so`, a C header, a pkg-config file | v0.8.1, the latest release | C programs, and Rust through zvec's own crates |
+| `python3-zvec` | Python API and native `_zvec` module | v0.8.1 | Python collections, indexes and searches |
 | `zvec` | four static libraries and their C++ headers | commit `fea2481` (2026-07-20), NeuG's | extensions built the way NeuG's `vector_search` is |
 
-Contents: [Get it](#get-it) · [Use it](#use-it) ([C](#the-c-library), [Rust](#rust),
+Contents: [Get it](#get-it) · [Use it](#use-it) ([C](#the-c-library), [Python](#python), [Rust](#rust),
 [static libraries](#the-static-libraries)) · [Things to know](#things-to-know) ·
 [What is in it](#what-is-in-it) · [For maintainers and auditors](#for-maintainers-and-auditors)
 ([pins](#pins-and-update-scripts), [build](#how-zvec-c-is-built), [checks](#checks),
@@ -26,11 +26,12 @@ Contents: [Get it](#get-it) · [Use it](#use-it) ([C](#the-c-library), [Rust](#r
 
 ```sh
 nix build github:levigross/engram#zvec-c    # the C library, its header and pkg-config file
+nix build github:levigross/engram#python3-zvec # the Python module
 nix build github:levigross/engram#zvec      # the static libraries (see above: you probably do not need them)
 ```
 
 - `stable-` (26.05) and `previous-` (25.11) in front of the name give the same packages for those
-  nixpkgs (`#stable-zvec-c`, `#previous-zvec-c`). Both packages are built and
+  nixpkgs (`#stable-zvec-c`, `#previous-zvec-c`). The packages are built and
   [checked](packaging.md#glossary) on all three.
 - From your own flake: `lib.zvec-c pkgs` and `lib.zvec pkgs`, taken from this flake as an input
   (the [README](../README.md) shows how). The overlay `overlays.default` adds `zvec` and `zvec-c`.
@@ -78,12 +79,23 @@ kernel lets it make a ring, otherwise libaio if it can load `libaio.so.1`, other
 - All three ways work and are tested ([Without io_uring](#without-io_uring)). The speed of
   `pread` is not measured: the library itself says that "performance may be degraded".
 
+### Python
+
+Use `pkgs.zvec-c.pythonModule pkgs.python3Packages` with the overlay, or
+`engram.lib.zvec-c pkgs` followed by `.pythonModule pkgs.python3Packages` without it.
+Add the result to `python3.withPackages` to import `zvec` in your application.
+
+The Python module uses upstream's C++ API directly, so its native `_zvec` binding is
+compiled separately from the C library. It shares the pinned source, patches and
+offline build dependencies of `zvec-c`. NumPy is included; optional embedding
+providers need their own dependencies and may access external services or models.
+
 ### Rust
 
 The crates `zvec-rust-sys` and `zvec-rust` 0.8.0 on crates.io are **the zvec team's own**
 ([zvec-ai/zvec-rust](https://github.com/zvec-ai/zvec-rust), tag v0.8.0, Apache-2.0): safe bindings
-over the C library, with the declarations written by hand and no bindgen. This repository writes
-no binding code for zvec, unlike for [NeuG](neug.md#rust). It provides the library they link and
+over the C library, with the declarations written by hand and no bindgen. This repository applies
+local patches for the five C API functions added or missing in those bindings. It provides the library they link and
 a program that uses them, `examples/zvec-rust-consumer`, built by
 `nix/zvec/rust-checks/consumer.nix`:
 
@@ -131,10 +143,30 @@ for hit in c.query(&query)? { println!("{:?} {}", hit.get_pk(), hit.get_score())
   (its comment says why: one emitted there would apply only to its own crate). The RUNPATH of the
   program comes from the linker wrapper of Nix, which puts the directory of every build input in
   it. Without it the program does not start.
-- **Rust cannot run a grouped query or set the PQ quantizer.** The crates bind neither (a
-  `GroupBySearchQuery` can be built, and has no method to run it). The C library has both. Which
-  functions: [`zvec-rust-abi`](#zvec-rust-abi). More about the crates under
-  [Things to know](#things-to-know).
+- **The local patches add grouped queries, PQ settings and typed document fields.**
+  Use `Collection::group_by_query`, `IndexParams::{set_quantizer_pq,quantizer_pq}`
+  with `PqQuantizerParams` and `QuantizeType::Pq`, and `Doc::add_field` with
+  `FieldValue`. Group results own their documents and remain valid after closing
+  the collection. The unmodified crates.io release does not have these additions.
+  The patches also make `Doc::get_string` honor the native string length, preserving
+  embedded NUL bytes instead of silently truncating them.
+
+For a downstream Nix build using the pinned 0.8.0 crates, apply the same patches:
+
+```nix
+pkgs.rustPlatform.buildRustPackage {
+  # src, pname, version, buildInputs and env as above
+  cargoDeps = zvec-c.patchRustVendor (
+    pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; }
+  );
+}
+```
+
+Nix verifies the pinned archive hashes. The helper validates any existing vendor
+file checksums before patching, then regenerates file checksums while retaining
+the archive checksums from `Cargo.lock`.
+It refuses unexpected versions or missing crates. `zvec-c.rustPatches` exposes
+the per-crate patches for other build arrangements.
 
 ### The static libraries
 
@@ -173,7 +205,6 @@ c++ -std=c++17 -DNDEBUG -I$zvec/include prog.cc -o prog \
 - **Two upstream issues are not worked around.** zvec issue #875: FastPFOR is compiled with
   `-msse4.1`, which is not portable. zvec issue #781: `group_by_query` returns nothing after a
   FLAT index with `use_id_map=false` is opened again.
-- **No Python module.** zvec v0.8.1 has one; it is not built here.
 
 ## What is in it
 
@@ -183,10 +214,14 @@ c++ -std=c++17 -DNDEBUG -I$zvec/include prog.cc -o prog \
 - `zvec`: the static libraries `libzvec_core.a`, `libzvec_turbo.a`, `libzvec_ailego.a` and
   `libroaring.a`, and their headers: `include/zvec/{core,ailego,turbo}` and CRoaring's
   `roaring.h`, `roaring.hh` and `roaring64map.hh`. Its `passthru` has `cubePatch`.
+- `python3-zvec`: upstream's Python package and a separately compiled `_zvec` native
+  module, with NumPy as a runtime dependency. `zvec-c.pythonModule` builds it for
+  the selected Python package set.
 - Both are built from `alibaba/zvec` with every submodule (`fetchSubmodules`), at the commits in
   [Pins](#pins-and-update-scripts).
-- The Rust crates are not part of either package: they come from crates.io, pinned by hash, and
-  are built by the program that uses them.
+- The Rust crates come from crates.io, pinned by hash, and are built by the program
+  that uses them. The consumer applies `rustPatches` through `patchRustVendor`;
+  the upstream-workspace suite applies the same patches to the pinned source.
 
 ## For maintainers and auditors
 
@@ -226,6 +261,9 @@ from the files themselves.
   (that is import from derivation, which CI forbids). The copy is not called `Cargo.lock`:
   Dependabot takes every `Cargo.lock` for a Rust project and fails where no `Cargo.toml` is next
   to it.
+- After updating the Rust pin, review or remove the local API patches and the
+  pinned-version guard in `nix/zvec/rust-checks/patch-vendor.py`. The update script
+  verifies unmodified upstream archives; it does not port the local patches.
 - `scripts/update-zvec-c.sh` also checks that the functions `c_api.h` declares are the ones the
   version script exports, that the version can be given to CMake in place of git, and that every
   submodule the tree links was fetched.
@@ -294,6 +332,9 @@ in `postPatch`: the patches of three of its thirdparty projects (and the markers
 CMake they are applied), a git version that nothing reads, and `librt`, which glibc has had
 inside libc since 2.34.
 
+Ninja uses the core allocation supplied by Nix (`--cores` / `NIX_BUILD_CORES`),
+and the static-library test suite uses the same allocation for CTest.
+
 ### The header repair
 
 One patch is applied to zvec's own source (`pkgs/zvec/cube-storage.patch`). It fixes a bug of
@@ -354,14 +395,33 @@ versions.
 | [`zvec-c-examples`](#zvec-c-examples) | zvec's C examples run and pass, in all three modes. |
 | [`zvec-c-core-tests`](#zvec-c-core-tests) | zvec's unit tests of ailego, core and turbo pass, in all three modes. |
 | [`zvec-c-db-tests`](#zvec-c-db-tests) | zvec's unit tests of the database layer pass, in all three modes. |
+| `zvec-c-python` | The installed Python module persists a collection, searches it and rejects bad input and a wrong version. |
+| `zvec-c-python-api` | `pythonModule` evaluates with the caller's original Python package set, without requiring the overlay in that scope. |
+| `zvec-c-python-tests` | Upstream's offline Python tests run against the installed package, with its strict pytest policy and opt-in integration skips preserved. |
 | [`zvec-rust-lock-policy`](#zvec-rust-lock-policy) | No lock file has a crate of TLS or HTTP, or one from git. |
 | [`zvec-rust-consumer`](#zvec-rust-consumer) | A Rust program on the crates uses a collection end to end against `zvec-c`. |
 | [`zvec-rust-abi`](#zvec-rust-abi) | Every function the crates declare is exported by the library. |
+| `zvec-rust-abi-layout` | New FFI structs and union match C sizes, alignment and offsets; widening a Rust field fails the comparison. |
 | [`zvec-rust-tests`](#zvec-rust-tests) | The zvec team's own tests of the two crates pass, in four passes. |
 
 CI builds none of this (the library and the tests do not fit a hosted runner). Its `evaluate` job
 (`nix flake check --no-build`, without import from derivation) does evaluate the packages and
 checks named here.
+
+#### Python checks
+
+`zvec-c-python` checks package version, native wheel metadata and `RECORD`, and
+preserved upstream extras. It inserts vectors, closes and reopens a collection,
+checks nearest-neighbor results, and requires a bad query and a wrong expected
+version to fail. A Python environment without the module must fail to import it.
+
+`zvec-c-python-tests` runs upstream's full offline Python suite against the
+installed package, with strict pytest markers and warnings preserved. On unstable,
+**1,869 tests pass and 27 skip**: 12 recall variants marked upstream as a known bug,
+and 15 opt-in embedding/reranker integrations requiring models or external services.
+No additional exclusions are applied. Tests run serially because some use fixed
+paths; subprocesses receive the installed package path. JUnit results are kept in
+the check output.
 
 #### zvec-library
 
@@ -525,15 +585,15 @@ the repair. Where the compiler is GCC 15 or later, the headers as upstream has t
 
 #### zvec-rust-abi
 
-- The **375 functions** that `zvec-rust-sys` declares are all exported by the library
+- The **380 functions** that the patched `zvec-rust-sys` declares are all exported by the library
   ([how many it exports](#zvec-c-library)).
-- The **5 that the crates do not bind** are exactly this list: `zvec_collection_group_by_query`,
+- The local patches bind `zvec_collection_group_by_query`,
   `zvec_group_results_free`, `zvec_index_params_get_quantizer_pq`,
-  `zvec_index_params_set_quantizer_pq` and `zvec_doc_add_field_by_struct`. So Rust has no grouped
-  queries and no PQ quantizer.
-- Controls: a function the library lacks, a function missing from the list of the five, and one
-  of the five that is bound each fail the check. A newer crate that binds one of the five fails it
-  until the list is changed.
+  `zvec_index_params_set_quantizer_pq` and `zvec_doc_add_field_by_struct`.
+- Every exported C API function must be bound. Controls add a nonexistent symbol,
+  remove a real binding, and incorrectly list a bound function as missing; each fails.
+- `zvec-rust-abi-layout` also compares C and Rust sizes, alignments and field
+  offsets for the new structs and union against the pinned C header.
 
 #### zvec-rust-tests
 
@@ -541,9 +601,9 @@ the repair. Where the compiler is GCC 15 or later, the headers as upstream has t
   `Cargo.lock`: `cargo test --lib --tests --doc`, in four passes: with the default features, with
   `--no-default-features`, and with the default features in the two modes without io_uring
   ([Without io_uring](#without-io_uring)).
-- Each pass has **209 tests** that pass and none ignored. 209 is the number of `#[test]` functions
-  in the sources: 119 unit tests, 80 in 6 integration test files and 10 of the hermetic tests of
-  the build script. The test programs are compared with the manifest.
+- The suite counts every `#[test]` in the patched sources dynamically: the original
+  209 cases plus three local regressions for grouped-result ownership, PQ settings
+  and typed document fields. The test programs are compared with the manifest.
 - Each pass also has 7 documentation tests: 6 pass (five are only compiled, and one is
   `compile_fail`, which passes by not compiling) and 1 is `ignore`d.
 - No test skips itself (the crate prints "skipping" when the library lacks DiskANN or RaBitQ; none

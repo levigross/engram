@@ -1,0 +1,100 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -347,6 +347,8 @@
+ pub const ZVEC_QUANTIZE_TYPE_INT8: zvec_quantize_type_t = 2;
+ /// INT4 (4-bit integer) quantization.
+ pub const ZVEC_QUANTIZE_TYPE_INT4: zvec_quantize_type_t = 3;
++/// Product quantization (IVF).
++pub const ZVEC_QUANTIZE_TYPE_PQ: zvec_quantize_type_t = 8;
+ /// RaBitQ quantization.
+ pub const ZVEC_QUANTIZE_TYPE_RABITQ: zvec_quantize_type_t = 4;
+
+@@ -475,6 +477,61 @@
+ // =============================================================================
+ // FFI Function Declarations
+ // =============================================================================
++
++/// IVF product-quantizer configuration, matching zvec 0.8.1.
++#[repr(C)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct zvec_pq_quantizer_params_t {
++    pub num_chunk: c_int,
++    pub num_bits: c_int,
++    pub enable_rotate: bool,
++    pub fast_scan: bool,
++    pub opq_iter: u32,
++    pub opq_pq_iter: u32,
++}
++
++impl Default for zvec_pq_quantizer_params_t {
++    fn default() -> Self {
++        Self {
++            num_chunk: 8,
++            num_bits: 8,
++            enable_rotate: false,
++            fast_scan: false,
++            opq_iter: 5,
++            opq_pq_iter: 4,
++        }
++    }
++}
++
++/// One owned group of documents. Free with `zvec_group_results_free`.
++#[repr(C)]
++pub struct zvec_group_result_t {
++    pub group_by_value: *mut c_char,
++    pub docs: *mut *mut zvec_doc_t,
++    pub doc_count: usize,
++}
++
++/// C field value; the active member must match the field's data type.
++#[repr(C)]
++pub union zvec_field_value_t {
++    pub bool_value: bool,
++    pub int32_value: i32,
++    pub int64_value: i64,
++    pub uint32_value: u32,
++    pub uint64_value: u64,
++    pub float_value: f32,
++    pub double_value: f64,
++    pub string_value: std::mem::ManuallyDrop<zvec_string_t>,
++    pub vector_value: std::mem::ManuallyDrop<zvec_float_array_t>,
++    pub binary_value: std::mem::ManuallyDrop<zvec_byte_array_t>,
++}
++
++#[repr(C)]
++pub struct zvec_doc_field_t {
++    pub name: zvec_string_t,
++    pub data_type: zvec_data_type_t,
++    pub value: zvec_field_value_t,
++}
+
+ extern "C" {
+     // -------------------------------------------------------------------------
+@@ -657,6 +714,26 @@
+     pub fn zvec_index_params_get_quantize_type(
+         params: *const zvec_index_params_t,
+     ) -> zvec_quantize_type_t;
++    pub fn zvec_index_params_set_quantizer_pq(
++        params: *mut zvec_index_params_t,
++        pq: *const zvec_pq_quantizer_params_t,
++    ) -> zvec_error_code_t;
++    pub fn zvec_index_params_get_quantizer_pq(
++        params: *const zvec_index_params_t,
++        pq: *mut zvec_pq_quantizer_params_t,
++    ) -> zvec_error_code_t;
++    pub fn zvec_collection_group_by_query(
++        collection: *const zvec_collection_t,
++        query: *const zvec_group_by_vector_query_t,
++        results: *mut *mut zvec_group_result_t,
++        result_count: *mut usize,
++    ) -> zvec_error_code_t;
++    pub fn zvec_group_results_free(results: *mut zvec_group_result_t, result_count: usize);
++    pub fn zvec_doc_add_field_by_struct(
++        doc: *mut zvec_doc_t,
++        field: *const zvec_doc_field_t,
++    ) -> zvec_error_code_t;
++
+     pub fn zvec_index_params_set_quantizer_enable_rotate(
+         params: *mut zvec_index_params_t,
+         enable_rotate: bool,

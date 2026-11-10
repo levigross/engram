@@ -16,8 +16,6 @@
   fetchFromGitHub,
   cmake,
   ninja,
-  # compilations at once
-  jobs ? 16,
 }:
 
 let
@@ -85,7 +83,6 @@ stdenv.mkDerivation {
   ];
 
   ninjaFlags = [
-    "-j${toString jobs}"
     "zvec_core"
     "zvec_ailego"
     "zvec_turbo"

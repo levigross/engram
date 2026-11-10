@@ -1,14 +1,15 @@
 # engram
 
 Embedded engines for data and AI, built with Nix: databases that run inside your process.
-Each is built from source, or is a binary pinned by hash, and nothing is fetched when your program runs.
+Each is built from source or is a binary pinned by hash. Core APIs require no runtime downloads;
+optional network integrations and model adapters can fetch data when explicitly used.
 
 | Engine | What it is | Use it from | Page |
 |---|---|---|---|
 | DuckDB | Analytical SQL (2.0.0, 1.5.2, 1.4.3), with the extensions that are not in DuckDB's tree linked in | CLI, `libduckdb`, Python, Rust | [DuckDB](docs/duckdb.md) |
 | chDB | ClickHouse as a library (prebuilt binary, pinned by hash) | C, Python, Rust | [chDB](docs/chdb.md) |
 | NeuG | Graph database (Cypher) 0.3.0, with its six extensions | C++, C, Rust, Python, Node.js | [NeuG](docs/neug.md) |
-| zvec | Vector database: a C library at v0.8.1 and the zvec team's Rust crates | C, Rust (C++ static libraries for NeuG) | [zvec](docs/zvec.md) |
+| zvec | Vector database: C and Python APIs at v0.8.1 and the zvec team's Rust crates | C, Python, Rust (C++ static libraries for NeuG) | [zvec](docs/zvec.md) |
 
 ## Try it
 

@@ -278,3 +278,6 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod api_tests;

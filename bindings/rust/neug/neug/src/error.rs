@@ -37,7 +37,10 @@ pub enum ErrorKind {
 
 impl Error {
     pub(crate) fn new(code: i32, message: impl Into<String>) -> Self {
-        Error { code, message: message.into() }
+        Error {
+            code,
+            message: message.into(),
+        }
     }
 
     /// Reads the error that the C interface made, and frees it.
@@ -49,7 +52,9 @@ impl Error {
             return Error::new(status, "(the library gave no message)");
         }
         let code = sys::neug_error_code(err);
-        let message = CStr::from_ptr(sys::neug_error_message(err)).to_string_lossy().into_owned();
+        let message = CStr::from_ptr(sys::neug_error_message(err))
+            .to_string_lossy()
+            .into_owned();
         sys::neug_error_free(err);
         Error { code, message }
     }
